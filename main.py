@@ -88,23 +88,44 @@ def main():
 
     load_dotenv()
 
+    # Creamos el parser sin el help por defecto para definirlo explícitamente
     parser = argparse.ArgumentParser(
-        description="Transcribir grabaciones de reuniones a texto"
+        description="Transcribir grabaciones de reuniones a texto",
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog=(
+            "Ejemplo de uso:\n"
+            "  python main.py recording.mp4\n"
+            "  python main.py recording.mp4 --model medium --device cpu --output-dir out\n"
+        ),
+        add_help=False,
     )
+
+    # Añadimos una opción --help en Español (y -h) para mostrar la ayuda y salir
+    parser.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        help="Mostrar esta ayuda y salir (también disponible como -h)",
+    )
+
     parser.add_argument(
         "video", help="Ruta al archivo de video (o audio) a transcribir"
     )
     parser.add_argument(
-        "--model", help="Modelo Whisper a usar (ej: small, medium, large)"
+        "--model",
+        help="Modelo Whisper a usar (ej: tiny, base, small, medium, large)",
     )
     parser.add_argument(
-        "--device", choices=["cuda", "cpu"], help="Dispositivo para ejecutar (cuda|cpu)"
+        "--device",
+        choices=["cuda", "cpu"],
+        help="Dispositivo para ejecutar (cuda|cpu). Si no se especifica, se detectará automáticamente.",
     )
     parser.add_argument(
         "--output-dir",
         default=OUTPUT_DIR,
         help="Directorio de salida para transcripciones",
     )
+
     args = parser.parse_args()
 
     # Crear el directorio de salida si no existe
