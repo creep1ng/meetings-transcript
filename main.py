@@ -1,11 +1,22 @@
 import argparse
+import math
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
+import threading
+import time
 from typing import Tuple
 
 import torch
 import whisper  # type: ignore
 from moviepy import VideoFileClip  # type: ignore
+
+try:
+    from tqdm import tqdm
+except Exception:  # pragma: no cover - optional dependency
+    tqdm = None
 
 # Variable global para la carpeta de salida
 OUTPUT_DIR = "transcripts"
@@ -53,6 +64,7 @@ def transcribe_audio(
     output_text_path: str,
     model_size: str = "turbo",
     device: str = "cpu",
+    chunk_length_seconds: int = 0,
 ) -> None:
     """
     Transcribe un archivo de audio utilizando Whisper y guarda la transcripción en un archivo de texto.
@@ -74,9 +86,158 @@ def transcribe_audio(
     model = whisper.load_model(model_size, device=device)
 
     print(
-        f"Transcribiendo audio con el modelo '{model_size}'... (archivo: {audio_path})"
+        f"Iniciando transcripción con el modelo '{model_size}' (archivo: {audio_path})"
     )
-    result = model.transcribe(audio_path, language="es")
+
+    # Si se solicita chunking, dividimos el audio en fragmentos y transcribimos
+    # fragmento por fragmento actualizando una barra tqdm con progreso real.
+    if chunk_length_seconds and chunk_length_seconds > 0:
+        # Crear carpeta temporal para chunks
+        tmp_dir = os.path.join(
+            OUTPUT_DIR,
+            f"_tmp_chunks_{os.path.splitext(os.path.basename(audio_path))[0]}",
+        )
+        os.makedirs(tmp_dir, exist_ok=True)
+
+        def _split_audio_into_chunks(path: str, chunk_s: int) -> list:
+            # Obtener duración total del audio usando ffprobe (ffmpeg must be available)
+            try:
+                cmd = [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    path,
+                ]
+                proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                total_duration = float(proc.stdout.strip())
+            except Exception:
+                # fallback: si ffprobe falla, asumimos un solo chunk
+                total_duration = chunk_s
+
+            num_chunks = max(1, math.ceil(total_duration / chunk_s))
+            chunk_paths = []
+            for i in range(num_chunks):
+                start = i * chunk_s
+                out_path = os.path.join(tmp_dir, f"chunk_{i:04d}.wav")
+                # usar ffmpeg para recortar (re-encode a wav 16k mono para compatibilidad)
+                cmd = [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    path,
+                    "-ss",
+                    str(start),
+                    "-t",
+                    str(chunk_s),
+                    "-ar",
+                    "16000",
+                    "-ac",
+                    "1",
+                    out_path,
+                ]
+                try:
+                    subprocess.run(
+                        cmd,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=True,
+                    )
+                    # Verificar archivo generado y su tamaño
+                    if os.path.exists(out_path) and os.path.getsize(out_path) > 100:
+                        chunk_paths.append(out_path)
+                    else:
+                        # si el chunk está vacío, lo ignoramos
+                        if os.path.exists(out_path):
+                            os.remove(out_path)
+                except Exception:
+                    # en caso de error con ffmpeg, intentar continuar con los chunks ya creados
+                    break
+
+            return chunk_paths
+
+        chunks = _split_audio_into_chunks(audio_path, chunk_length_seconds)
+
+        full_text_parts = []
+        if tqdm is not None:
+            pbar = tqdm(
+                total=len(chunks),
+                desc=f"Transcribiendo: {os.path.basename(audio_path)}",
+                unit="chunk",
+            )
+        else:
+            pbar = None
+
+        try:
+            for chunk_path in chunks:
+                # transcribir cada fragmento y acumular texto
+                res = model.transcribe(chunk_path, language="es")
+                txt = res.get("text", "")
+                full_text_parts.append(txt.strip())
+                if pbar is not None:
+                    pbar.update(1)
+            if pbar is not None:
+                pbar.close()
+
+            transcript = "\n".join([p for p in full_text_parts if p])
+            # Guardar la transcripción en un archivo de texto
+            with open(output_text_path, "w", encoding="utf-8") as f:
+                f.write(transcript)
+
+            print(f"Transcripción guardada en: {output_text_path}")
+        finally:
+            # Limpiar archivos temporales
+            try:
+                if os.path.exists(tmp_dir):
+                    shutil.rmtree(tmp_dir)
+            except Exception:
+                pass
+        return
+
+    # Si no se solicita chunking, mantener el comportamiento anterior (barra animada)
+    result_holder = {}
+
+    def _worker():
+        try:
+            result_holder["result"] = model.transcribe(audio_path, language="es")
+        except Exception as e:  # store exception to raise later
+            result_holder["error"] = e
+
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
+
+    # Mostrar barra de progreso animada si tqdm está disponible
+    if tqdm is not None:
+        desc = f"Transcribiendo: {os.path.basename(audio_path)}"
+        with tqdm(desc=desc, unit="it", leave=True) as pbar:
+            while thread.is_alive():
+                pbar.update(1)
+                time.sleep(0.05)
+            # un pequeño avance final para que la barra termine con un número
+            pbar.update(1)
+    else:
+        # Caída a un spinner simple si no está instalado tqdm
+        spinner = "|/-\\"
+        idx = 0
+        while thread.is_alive():
+            print(
+                f"Transcribiendo... {spinner[idx % len(spinner)]}", end="\r", flush=True
+            )
+            idx += 1
+            time.sleep(0.1)
+        # limpiar la línea
+        print(" " * 40, end="\r")
+
+    thread.join()
+
+    # Propagar cualquier excepción ocurrida dentro del hilo
+    if "error" in result_holder:
+        raise result_holder["error"]
+
+    result = result_holder.get("result", {})
     transcript = result.get("text", "")
 
     # Guardar la transcripción en un archivo de texto
@@ -87,7 +248,7 @@ def transcribe_audio(
 
 
 def process_single_media_file(
-    file_path: str, model: str, device: str
+    file_path: str, model: str, device: str, chunk_length_seconds: int = 0
 ) -> Tuple[bool, str]:
     """
     Procesa un único archivo de audio o video. Devuelve (success, message).
@@ -110,6 +271,7 @@ def process_single_media_file(
             transcription_output_path,
             model_size=model,
             device=device,
+            chunk_length_seconds=chunk_length_seconds,
         )
         return (
             True,
@@ -120,6 +282,8 @@ def process_single_media_file(
 
 
 def main():
+    global OUTPUT_DIR
+
     # Cargar variables de entorno desde un posible archivo .env en la raíz
     def load_dotenv(path: str = ".env") -> None:
         if not os.path.exists(path):
@@ -174,12 +338,17 @@ def main():
         default=OUTPUT_DIR,
         help="Directorio de salida para transcripciones",
     )
+    parser.add_argument(
+        "--chunk",
+        type=int,
+        default=0,
+        help="(Opcional) Tamaño en segundos para dividir el audio en fragmentos y transcribir por partes. 0 = desactivar chunking",
+    )
 
     args = parser.parse_args()
 
     # Crear el directorio de salida si no existe
     OUTPUT = args.output_dir
-    global OUTPUT_DIR
     OUTPUT_DIR = OUTPUT
     ensure_output_directory()
 
@@ -216,7 +385,7 @@ def main():
                 continue
 
             total += 1
-            ok, msg = process_single_media_file(file_path, model, device)
+            ok, msg = process_single_media_file(file_path, model, device, args.chunk)
             if ok:
                 successes += 1
                 print(msg)
@@ -226,7 +395,7 @@ def main():
         print(f"Procesados: {successes}/{total} archivos con éxito.")
     else:
         # Es un archivo único
-        ok, msg = process_single_media_file(in_path, model, device)
+        ok, msg = process_single_media_file(in_path, model, device, args.chunk)
         if not ok:
             print(f"Error: {msg}")
             sys.exit(1)
