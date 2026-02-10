@@ -15,7 +15,10 @@ class Config:
     aws_secret_access_key: Optional[str] = field(default=None)
     aws_region: str = field(default="us-east-1")
 
-    # S3 bucket configuration (required)
+    # Source configuration
+    source: str = field(default="local")  # local or s3
+
+    # S3 bucket configuration (required for S3 source)
     s3_bucket_name: Optional[str] = field(default=None)
     video_prefix: str = field(default="videos/")
     transcripts_prefix: str = field(default="transcripts/")
@@ -84,6 +87,10 @@ class Config:
             self.aws_secret_access_key = os.environ["AWS_SECRET_ACCESS_KEY"]
         if os.environ.get("AWS_REGION"):
             self.aws_region = os.environ["AWS_REGION"]
+
+        # Source configuration
+        if os.environ.get("SOURCE"):
+            self.source = os.environ["SOURCE"]
 
         # S3 configuration
         if os.environ.get("S3_BUCKET_NAME"):
@@ -158,6 +165,14 @@ class Config:
 
         if self.device not in ("cpu", "cuda"):
             raise ValueError("DEVICE must be 'cpu' or 'cuda'")
+
+        # Validate source is valid
+        if self.source not in ("local", "s3"):
+            raise ValueError(f"Invalid SOURCE: {self.source}. Must be 'local' or 's3'.")
+
+        # Validate S3 bucket is required for S3 source
+        if self.source == "s3" and self.s3_bucket_name is None:
+            raise ValueError("S3_BUCKET_NAME is required when SOURCE='s3'.")
 
         # Validate provider is supported
         if self.transcript_provider != "whisper/local":

@@ -159,7 +159,32 @@ Copy `.env.example` to `.env` and fill in your values:
 cp .env.example .env
 ```
 
-Edit `.env` with your configuration:
+### Source Configuration
+
+The application supports two sources for videos:
+- **local** (default): Process local video files or folders
+- **s3**: Process videos from Amazon S3 bucket
+
+You can configure the default source in `.env`:
+
+```env
+SOURCE=local  # Default source
+```
+
+Or override with the `--source` CLI flag:
+
+```bash
+# Use S3 for this command only
+python main.py --source s3 list
+python main.py --source s3 transcribe videos/meeting.mp4
+
+# Use local for this command only
+python main.py --source local transcribe ./my_videos
+```
+
+### S3 Configuration
+
+Required when using S3 source:
 
 ```env
 # AWS Credentials
@@ -167,16 +192,19 @@ AWS_ACCESS_KEY_ID=your_access_key_id
 AWS_SECRET_ACCESS_KEY=your_secret_access_key
 AWS_REGION=us-east-1
 
-# S3 Configuration
+# S3 Bucket
 S3_BUCKET_NAME=your-bucket-name
 VIDEO_PREFIX=videos/
 TRANSCRIPTS_PREFIX=transcripts/
+```
 
-# Transcription Settings
-MODEL_SIZE=small
-DEVICE=cpu
-TRANSCRIPT_CHUNK_SECONDS=0
-DOWNLOAD_CHUNK_BYTES=10485760
+### Transcription Settings
+
+```env
+MODEL_SIZE=small                     # tiny, base, small, medium, large, turbo
+DEVICE=cpu                           # cpu or cuda
+TRANSCRIPT_CHUNK_SECONDS=0           # 0 to disable chunking
+DOWNLOAD_CHUNK_BYTES=10485760        # 10MB for streaming
 
 # Timeouts
 S3_TIMEOUT=300
@@ -238,16 +266,74 @@ python main.py download transcripts/meeting_jan_2024.mp4.txt -o ./output
 
 ## CLI Examples
 
-### Full workflow
+### Local source examples
 
 ```bash
-# 1. List available videos
+# List local files
 python main.py list
 
-# 2. Transcribe specific video
-python main.py transcribe videos/team_meeting.mp4
+# Transcribe single file
+python main.py transcribe video.mp4
 
-# 3. Download the transcription
+# Transcribe folder with batch processing
+python main.py transcribe ./recordings --all
+
+# Transcribe with output directory
+python main.py transcribe video.mp4 -o ./transcriptions
+
+# Transcribe with chunking
+python main.py transcribe large_video.mp4 --transcript-chunk 120 -o ./transcriptions
+```
+
+### S3 source examples
+
+```bash
+# List S3 videos
+python main.py --source s3 list
+
+# Transcribe from S3
+python main.py --source s3 transcribe videos/meeting.mp4
+
+# Transcribe all from S3 bucket
+python main.py --source s3 transcribe --all
+```
+
+### Environment-based source
+
+Set default source in `.env`:
+```env
+SOURCE=s3
+```
+
+Then use without flags:
+```bash
+python main.py list              # Lists from S3
+python main.py transcribe --all  # Transcribes all from S3
+```
+
+### Full workflows
+
+**Local workflow:**
+```bash
+# 1. List local files
+python main.py list ./videos
+
+# 2. Transcribe with chunking
+python main.py transcribe ./videos/large_meeting.mp4 --transcript-chunk 120 -o ./transcripts
+
+# 3. View result
+cat ./transcripts/large_meeting.txt
+```
+
+**S3 workflow:**
+```bash
+# 1. List S3 videos
+python main.py --source s3 list
+
+# 2. Transcribe from S3
+python main.py --source s3 transcribe videos/team_meeting.mp4
+
+# 3. Download transcription
 python main.py download transcripts/team_meeting.mp4.txt -o ./downloads
 ```
 

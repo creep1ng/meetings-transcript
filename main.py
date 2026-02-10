@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Meetings Transcript - CLI for S3 video transcription using Whisper.
+Meetings Transcript - CLI for video transcription using Whisper.
 
 Commands:
-    list       - List available videos in S3 bucket
-    transcribe - Transcribe video(s) from S3
+    list       - List available videos (S3 or local directory)
+    transcribe - Transcribe video(s) from local or S3
     download   - Download transcription from S3
 """
 
@@ -44,33 +44,92 @@ def setup_logging(level: str) -> None:
                     record.msg = record.msg.replace(key, "***REDACTED***")
             return True
 
-    # Add filter to root logger
     logging.getLogger().addFilter(SensitiveFilter())
 
 
+def get_source(args) -> str:
+    """Determine source (local or s3) from args or config.
+
+    Args:
+        args: Command line arguments.
+
+    Returns:
+        'local' or 's3'.
+    """
+    # CLI flag takes precedence
+    if hasattr(args, "source") and args.source:
+        return args.source
+
+    # Load config for default
+    try:
+        config = load_config(args.env)
+        return config.source
+    except Exception:
+        return "local"
+
+
 def cmd_list(args) -> None:
-    """List available videos in S3 bucket."""
+    """List available videos from S3 or local directory."""
+    source = get_source(args)
+
     try:
         config = load_config(args.env)
         setup_logging(config.log_level)
 
-        s3_client = S3Client(config)
-        videos = s3_client.list_videos()
+        if source == "s3":
+            s3_client = S3Client(config)
+            videos = s3_client.list_videos()
 
-        if not videos:
-            print("No videos found in S3 bucket.")
-            return
+            if not videos:
+                print("No videos found in S3 bucket.")
+                return
 
-        # Print header
-        print(f"{'Key':<60} {'Size':>10} {'Last Modified':<25}")
-        print("-" * 95)
+            print(f"{'Key':<60} {'Size':>10} {'Last Modified':<25}")
+            print("-" * 95)
 
-        for video in videos:
-            size_mb = video.size_bytes / (1024 * 1024)
-            modified = video.last_modified.strftime("%Y-%m-%d %H:%M:%S")
-            print(f"{video.key:<60} {size_mb:>7.2f}MB {modified:<25}")
+            for video in videos:
+                size_mb = video.size_bytes / (1024 * 1024)
+                modified = video.last_modified.strftime("%Y-%m-%d %H:%M:%S")
+                print(f"{video.key:<60} {size_mb:>7.2f}MB {modified:<25}")
 
-        print(f"\nTotal: {len(videos)} videos")
+            print(f"\nTotal: {len(videos)} videos in S3")
+
+        else:
+            # Local source - list files in path or current directory
+            path = Path(".")
+            if args.paths:
+                path = Path(args.paths[0])
+
+            if not path.exists():
+                print(f"Path does not exist: {path}")
+                sys.exit(1)
+
+            if path.is_file():
+                # Single file
+                files = [path]
+            else:
+                # Directory - list supported files
+                exts = config.allowed_video_extensions
+                files = sorted(
+                    [
+                        f
+                        for f in path.iterdir()
+                        if f.is_file() and f.suffix.lower() in exts
+                    ]
+                )
+
+            if not files:
+                print("No video files found in local directory.")
+                return
+
+            print(f"{'File':<60} {'Size':>10}")
+            print("-" * 75)
+
+            for f in files:
+                size_mb = f.stat().st_size / (1024 * 1024)
+                print(f"{str(f):<60} {size_mb:>7.2f}MB")
+
+            print(f"\nTotal: {len(files)} local files")
 
     except Exception as e:
         logger.error(f"Failed to list videos: {e}")
@@ -78,89 +137,160 @@ def cmd_list(args) -> None:
 
 
 def cmd_transcribe(args) -> None:
-    """Transcribe video(s) from S3."""
+    """Transcribe video(s) from local or S3."""
+    source = get_source(args)
+
     try:
         config = load_config(args.env)
         setup_logging(config.log_level)
 
-        s3_client = S3Client(config)
         transcribe_service = TranscriptionService(config)
+        s3_client = S3Client(config) if source == "s3" else None
 
-        # Get list of videos to transcribe
-        if args.all:
-            videos = s3_client.list_videos()
-            if not videos:
-                print("No videos found to transcribe.")
-                return
-            logger.info(f"Found {len(videos)} videos to transcribe")
+        s3_files: List[S3Object] = []
+        local_files: List[Path] = []
+
+        if source == "s3":
+            # S3 source
+            if args.all:
+                videos = s3_client.list_videos()  # type: ignore
+                if not videos:
+                    print("No videos found in S3 bucket.")
+                    return
+                s3_files = videos
+            else:
+                # Transcribe specific S3 keys
+                for key in args.keys:
+                    obj = s3_client.list_objects(prefix=key)  # type: ignore
+                    s3_files.extend(obj)
+
         else:
-            # Transcribe specific video(s)
-            videos = []
-            for key in args.keys:
-                obj = s3_client.list_objects(prefix=key)
-                videos.extend(obj)
+            # Local source
+            if args.all:
+                # Process all files in current directory or specified path
+                path = Path(".")
+                if args.paths:
+                    path = Path(args.paths[0])
 
-        # Process each video
-        successful = 0
-        failed = 0
+                exts = config.allowed_video_extensions
+                local_files = sorted(
+                    [
+                        f
+                        for f in path.iterdir()
+                        if f.is_file() and f.suffix.lower() in exts
+                    ]
+                )
+            else:
+                # Process specific local paths
+                for p in args.paths:
+                    path = Path(p)
+                    if not path.exists():
+                        logger.error(f"Path does not exist: {path}")
+                        continue
 
-        for video in videos:
-            logger.info(f"Processing: {video.key}")
+                    if path.is_file():
+                        local_files.append(path)
+                    else:
+                        # Directory - add all supported files
+                        exts = config.allowed_video_extensions
+                        local_files.extend(
+                            [
+                                f
+                                for f in path.iterdir()
+                                if f.is_file() and f.suffix.lower() in exts
+                            ]
+                        )
+
+        total_files = len(s3_files) + len(local_files)
+        if total_files == 0:
+            print("No files to transcribe.")
+            return
+
+        logger.info(f"Found {total_files} files to transcribe from {source}")
+
+        # Process S3 files
+        for file_obj in s3_files:
+            video_key = file_obj.key
+            video_size = file_obj.size_bytes
+            logger.info(f"Processing S3: {video_key}")
 
             # Validate file
             is_valid, error_msg = transcribe_service.validate_file(
-                video.key, video.size_bytes
+                video_key, video_size
             )
             if not is_valid:
-                logger.error(f"Validation failed for {video.key}: {error_msg}")
-                failed += 1
+                logger.error(f"Validation failed for {video_key}: {error_msg}")
                 continue
 
-            # Create temp directory for download
+            # Download from S3 to temp
             with tempfile.TemporaryDirectory() as tmp_dir:
                 tmp_path = Path(tmp_dir)
-                local_video_path = tmp_path / Path(video.key).name
+                local_video_path = tmp_path / Path(video_key).name
 
-                # Download from S3
                 try:
-                    s3_client.download_to_file(video.key, local_video_path)
-                    logger.info(f"Downloaded {video.key} to {local_video_path}")
+                    s3_client.download_to_file(video_key, local_video_path)  # type: ignore
+                    logger.info(f"Downloaded {video_key}")
                 except Exception as e:
-                    logger.error(f"Failed to download {video.key}: {e}")
-                    failed += 1
+                    logger.error(f"Failed to download {video_key}: {e}")
                     continue
 
                 # Transcribe
-                output_path = tmp_path / Path(video.key).stem
+                output_path = tmp_path / Path(video_key).stem
                 result: TranscriptionResult = transcribe_service.process_video(
                     local_video_path, output_path
                 )
 
                 if result.success:
                     # Upload to S3
-                    s3_key = s3_client.upload_text(
-                        key=video.key,
+                    s3_key = s3_client.upload_text(  # type: ignore
+                        key=video_key,
                         text=result.text,
                         metadata={
-                            "source_key": video.key,
-                            "source_etag": video.etag or "",
+                            "source_key": video_key,
+                            "source_etag": file_obj.etag or "",
                             "transcribed_at": datetime.utcnow().isoformat(),
                             "model": config.model_size,
                             "duration_seconds": str(result.duration_seconds or 0),
                         },
                     )
                     logger.info(f"Uploaded transcription to {s3_key}")
-                    successful += 1
                 else:
-                    logger.error(
-                        f"Transcription failed for {video.key}: {result.error}"
-                    )
-                    failed += 1
+                    logger.error(f"Transcription failed: {result.error}")
+
+        # Process local files
+        for local_path in local_files:
+            logger.info(f"Processing local: {local_path}")
+
+            # Validate file
+            is_valid, error_msg = transcribe_service.validate_file(
+                str(local_path), local_path.stat().st_size
+            )
+            if not is_valid:
+                logger.error(f"Validation failed for {local_path}: {error_msg}")
+                continue
+
+            # Determine output path
+            if args.output:
+                output_dir = Path(args.output)
+            else:
+                output_dir = local_path.parent / "transcripts"
+
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output_path = output_dir / local_path.stem
+
+            # Transcribe
+            result: TranscriptionResult = transcribe_service.process_video(
+                local_path, output_path
+            )
+
+            if result.success:
+                logger.info(f"Transcription saved to {result.local_path}")
+            else:
+                logger.error(f"Transcription failed: {result.error}")
 
         # Cleanup
         transcribe_service.cleanup()
-
-        print(f"\nTranscription complete: {successful} succeeded, {failed} failed")
+        print(f"\nTranscription complete")
 
     except Exception as e:
         logger.error(f"Transcription failed: {e}")
@@ -177,13 +307,10 @@ def cmd_download(args) -> None:
 
         for key in args.keys:
             # Try to find the transcription key
-            # Look for .txt files in transcripts prefix
             base_name = Path(key).stem
             transcript_key = f"{config.transcripts_prefix}{base_name}.txt"
 
-            # Try to download
             if not s3_client.object_exists(transcript_key):
-                # Try with original key
                 if s3_client.object_exists(key) and key.endswith(".txt"):
                     transcript_key = key
                 else:
@@ -206,14 +333,22 @@ def cmd_download(args) -> None:
 def create_parser() -> argparse.ArgumentParser:
     """Create the CLI argument parser with subcommands."""
     parser = argparse.ArgumentParser(
-        description="Meetings Transcript - Transcribe videos from S3 using Whisper",
+        description="Meetings Transcript - Transcribe videos using Whisper",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  %(prog)s list                                    # List all videos in S3
-  %(prog)s transcribe videos/meeting.mp4           # Transcribe specific video
-  %(prog)s transcribe --all                         # Transcribe all videos
-  %(prog)s download transcripts/meeting.mp4.txt    # Download transcription
+Examples (local source):
+  %(prog)s list                                    # List local video files
+  %(prog)s transcribe video.mp4                     # Transcribe single file
+  %(prog)s transcribe --all                         # Transcribe all local files
+  %(prog)s transcribe ./folder --all                # Transcribe all in folder
+
+Examples (S3 source):
+  %(prog)s list --source s3                         # List S3 videos
+  %(prog)s transcribe --source s3 videos/meeting.mp4
+  %(prog)s download transcripts/meeting.mp4.txt
+
+Environment:
+  SOURCE=local       # Default source (local or s3)
         """,
     )
 
@@ -228,32 +363,45 @@ Examples:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level (default: INFO)",
     )
+    parser.add_argument(
+        "--source",
+        choices=["local", "s3"],
+        help="Source type: local files or S3 (overrides SOURCE env var)",
+    )
 
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
 
     # List command
-    list_parser = subparsers.add_parser("list", help="List available videos in S3")
+    list_parser = subparsers.add_parser("list", help="List available videos")
+    list_parser.add_argument(
+        "paths",
+        nargs="*",
+        help="Path(s) to list (for local source)",
+    )
     list_parser.set_defaults(func=cmd_list)
 
     # Transcribe command
-    transcribe_parser = subparsers.add_parser(
-        "transcribe", help="Transcribe video(s) from S3"
-    )
+    transcribe_parser = subparsers.add_parser("transcribe", help="Transcribe video(s)")
     transcribe_parser.add_argument(
-        "keys",
+        "paths",
         nargs="*",
-        help="Video keys to transcribe (if not using --all)",
+        help="File(s) or folder(s) to transcribe",
     )
     transcribe_parser.add_argument(
         "--all",
         action="store_true",
-        help="Transcribe all videos in the bucket",
+        help="Transcribe all files in source",
     )
     transcribe_parser.add_argument(
         "--transcript-chunk",
         type=int,
         default=0,
         help="Chunk size in seconds for audio transcription (0=disabled)",
+    )
+    transcribe_parser.add_argument(
+        "-o",
+        "--output",
+        help="Output directory for local transcriptions",
     )
     transcribe_parser.set_defaults(func=cmd_transcribe)
 
