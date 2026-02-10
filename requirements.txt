@@ -1,0 +1,15 @@
+# Core dependencies
+boto3>=1.26.0
+botocore>=1.29.0
+torch>=2.0.0
+openai-whisper>=20231106
+moviepy>=1.0.3
+python-dotenv>=1.0.0
+
+# Optional dependencies for progress bars
+tqdm>=4.65.0
+
+# Development dependencies
+pytest>=7.0.0
+pytest-mock>=3.10.0
+moto>=4.1.0
