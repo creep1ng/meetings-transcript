@@ -34,42 +34,56 @@ Transcribe videos from Amazon S3 to text using OpenAI Whisper. This application 
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        CLI (main.py)                            │
-│  ┌───────────┐  ┌──────────────┐  ┌─────────────────────────┐   │
-│  │   list    │  │   transcribe │  │        download         │   │
-│  └───────────┘  └──────────────┘  └─────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     config.py (Config)                          │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │ • AWS credentials  • S3 bucket/prefixes                 │    │
-│  │ • Model settings   • Timeouts/retries                   │    │
-│  │ • Chunk sizes      • Validation limits                  │    │
-│  └─────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┴───────────────┐
-              ▼                               ▼
-┌─────────────────────────┐     ┌───────────────────────────────┐
-│    s3_client.py         │     │      transcribe.py            │
-│  ┌───────────────────┐  │     │  ┌─────────────────────────┐  │
-│  │ • list_objects    │  │     │  │ TranscriptionService    │  │
-│  │ • download_to_*   │  │     │  │  • validate_file        │  │
-│  │ • upload_text     │  │     │  │  • extract_audio        │  │
-│  │ • atomic uploads  │  │     │  │  • transcribe_audio     │  │
-│  │ • retries/backoff │  │     │  │  • process_video        │  │
-│  └───────────────────┘  │     │  └─────────────────────────┘  │
-└─────────────────────────┘     └───────────────────────────────┘
-              │                               │
-              ▼                               ▼
-     ┌────────────────┐              ┌────────────────────┐
-     │  Amazon S3     │              │  Whisper (local)   │
-     │  Bucket        │              │  Model             │
-     └────────────────┘              └────────────────────┘
+```mermaid
+flowchart TB
+    subgraph CLI ["CLI (main.py)"]
+        direction TB
+        cmd1["list"]
+        cmd2["transcribe"]
+        cmd3["download"]
+    end
+
+    subgraph Config ["config.py (Config)"]
+        direction TB
+        aws["• AWS credentials"]
+        s3["• S3 bucket/prefixes"]
+        model["• Model settings"]
+        timeout["• Timeouts/retries"]
+        chunk["• Chunk sizes"]
+        valid["• Validation limits"]
+    end
+
+    subgraph S3Client ["s3_client.py"]
+        direction TB
+        list["• list_objects"]
+        dl["• download_to_*"]
+        upload["• upload_text"]
+        atomic["• atomic uploads"]
+        retry["• retries/backoff"]
+    end
+
+    subgraph Transcribe ["transcribe.py"]
+        direction TB
+        svc["TranscriptionService"]
+        validate["• validate_file"]
+        audio["• extract_audio"]
+        transcribe["• transcribe_audio"]
+        process["• process_video"]
+    end
+
+    subgraph S3 ["Amazon S3"]
+        bucket["Bucket"]
+    end
+
+    subgraph Whisper ["Whisper (local)"]
+        model["Model"]
+    end
+
+    CLI --> Config
+    Config --> S3Client
+    Config --> Transcribe
+    S3Client --> S3
+    Transcribe --> Whisper
 ```
 
 ---
