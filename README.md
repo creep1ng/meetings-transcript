@@ -36,18 +36,18 @@ Transcribe videos from Amazon S3 to text using OpenAI Whisper. This application 
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        CLI (main.py)                           │
-│  ┌───────────┐  ┌──────────────┐  ┌─────────────────────────┐  │
-│  │   list    │  │   transcribe │  │        download         │  │
-│  └───────────┘  └──────────────┘  └─────────────────────────┘  │
+│                        CLI (main.py)                            │
+│  ┌───────────┐  ┌──────────────┐  ┌─────────────────────────┐   │
+│  │   list    │  │   transcribe │  │        download         │   │
+│  └───────────┘  └──────────────┘  └─────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                     config.py (Config)                          │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │ • AWS credentials  • S3 bucket/prefixes                │    │
-│  │ • Model settings   • Timeouts/retries                  │    │
+│  │ • AWS credentials  • S3 bucket/prefixes                 │    │
+│  │ • Model settings   • Timeouts/retries                   │    │
 │  │ • Chunk sizes      • Validation limits                  │    │
 │  └─────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
@@ -56,13 +56,13 @@ Transcribe videos from Amazon S3 to text using OpenAI Whisper. This application 
               ▼                               ▼
 ┌─────────────────────────┐     ┌───────────────────────────────┐
 │    s3_client.py         │     │      transcribe.py            │
-│  ┌───────────────────┐ │     │  ┌─────────────────────────┐  │
-│  │ • list_objects    │ │     │  │ TranscriptionService    │  │
-│  │ • download_to_*   │ │     │  │  • validate_file        │  │
-│  │ • upload_text     │ │     │  │  • extract_audio        │  │
-│  │ • atomic uploads │ │     │  │  • transcribe_audio     │  │
-│  │ • retries/backoff │ │     │  │  • process_video        │  │
-│  └───────────────────┘ │     │  └─────────────────────────┘  │
+│  ┌───────────────────┐  │     │  ┌─────────────────────────┐  │
+│  │ • list_objects    │  │     │  │ TranscriptionService    │  │
+│  │ • download_to_*   │  │     │  │  • validate_file        │  │
+│  │ • upload_text     │  │     │  │  • extract_audio        │  │
+│  │ • atomic uploads  │  │     │  │  • transcribe_audio     │  │
+│  │ • retries/backoff │  │     │  │  • process_video        │  │
+│  └───────────────────┘  │     │  └─────────────────────────┘  │
 └─────────────────────────┘     └───────────────────────────────┘
               │                               │
               ▼                               ▼
@@ -76,7 +76,9 @@ Transcribe videos from Amazon S3 to text using OpenAI Whisper. This application 
 
 ## Sequence Diagram
 
-```
+```mermaid
+sequenceDiagram
+
 participant User
 participant CLI
 participant Config
@@ -120,7 +122,7 @@ CLI-->>User: Done
 
 1. **Clone the repository**:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/creep1ng/meetings-transcript.git
    cd meetings-transcript
    ```
 

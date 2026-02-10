@@ -51,8 +51,11 @@ class Config:
 
     def __post_init__(self):
         """Validate configuration after initialization."""
-        self._validate_required()
+        # First apply environment overrides (which loads .env file values)
         self._apply_env_overrides()
+        # Then validate required variables
+        self._validate_required()
+        # Finally validate coherence
         self._validate_coherence()
 
     def _validate_required(self):
