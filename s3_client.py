@@ -16,7 +16,6 @@ from botocore.exceptions import (
     ClientError,
     ConnectionError,
     ReadTimeoutError,
-    SSOTokenError,
 )
 
 from config import Config as AppConfig
@@ -116,7 +115,7 @@ class S3Client:
         for attempt in range(self.config.max_retries + 1):
             try:
                 return func()
-            except (ConnectionError, ReadTimeoutError, SSOTokenError) as e:
+            except (ConnectionError, ReadTimeoutError) as e:
                 last_exception = e
                 if attempt < self.config.max_retries:
                     delay = base_delay**attempt
