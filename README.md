@@ -1,174 +1,377 @@
-# Transcripción de reuniones a texto
+# Meetings Transcript
 
-Este repositorio procesa grabaciones de reuniones (por ejemplo de Microsoft Teams) para generar un archivo `.txt` con la transcripción completa.
-
-Se utiliza Whisper para la transcripción y, cuando sea posible, se aprovechan aceleraciones por GPU (CUDA) y otras optimizaciones para equilibrar calidad y velocidad.
+Transcribe videos from Amazon S3 to text using OpenAI Whisper. This application downloads videos from S3, extracts audio, transcribes using Whisper, and uploads the resulting text back to S3.
 
 ---
 
-## Contenido
+## Table of Contents
 
-- Visión general
-- Requisitos
-- Instalación
-- Uso
-- Parámetros y opciones
-- Recomendaciones para obtener mejores transcripciones
-- Resolución de problemas
-- Contribución y licencia
-
----
-
-## Visión general
-
-El script principal es [`main.py`](main.py:1). Su objetivo es tomar un archivo de audio o una exportación de grabación de reunión y producir un archivo `transcript.txt`.
+- [Features](#features)
+- [Architecture](#architecture)
+- [Sequence Diagram](#sequence-diagram)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [CLI Examples](#cli-examples)
+- [AWS IAM Permissions](#aws-iam-permissions)
+- [Running with LocalStack (Emulator)](#running-with-localstack-emulator)
+- [Troubleshooting](#troubleshooting)
 
 ---
 
-## Requisitos
+## Features
 
-- Python 3.8+ (se recomienda Python 3.10+)
-- Dependencias definidas en [`pyprojecct.toml`](pyprojecct.toml:1)
-- GPU NVIDIA con CUDA (opcional, mejora velocidad) o CPU
+- **S3 Integration**: List, download, and upload objects from Amazon S3
+- **Whisper Transcription**: Local transcription using OpenAI Whisper model
+- **Audio Extraction**: Extract audio from video files using ffmpeg
+- **Chunking Support**: Process large files by splitting into chunks
+- **Atomic Uploads**: Safe uploads to S3 using temporary keys and copy operations
+- **Resilient**: Exponential backoff retries for transient errors
+- **Secure**: Credentials never logged; secret redaction in logs
 
 ---
 
-## Instalación (rápida)
+## Architecture
 
-1. Clonar el repositorio y situarse en la carpeta del proyecto.
-2. Crear y activar un entorno virtual:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
 ```
-
-3. Instalar dependencias (ejemplo genérico, adapte según su gestor):
-
-```bash
-pip install -r requirements.txt
-```
-
-Nota: si su proyecto usa un manejador como `pip-tools` o `poetry`, consulte [`pyprojecct.toml`](pyprojecct.toml:1) para detalles.
-
----
-
-## Uso
-
-El script principal es [`main.py`](main.py:1). El primer argumento positional es la ruta de entrada (un archivo de audio/video o una carpeta que contiene archivos compatibles). El comportamiento por defecto es crear/usar la carpeta `transcripts` (o la que se indique con `--output-dir`) y guardar por cada entrada un `.txt` con el mismo nombre base.
-
-Ejemplos de ejecución:
-
-```bash
-# Transcribir un único archivo (se creará transcripts/recording.txt)
-python main.py ruta/a/recording.wav
-
-# Especificar modelo y forzar CPU
-python main.py ruta/a/recording.mp4 --model medium --device cpu
-
-# Procesar una carpeta completa (batch): cada archivo compatible dentro de la carpeta será transcrito
-python main.py /ruta/a/carpeta_con_medias --model small --output-dir out
-
-# Usar chunking para dividir audios largos en fragmentos de 120s y transcribir por partes
-python main.py ruta/a/large_audio.wav --chunk 120
-```
-
-Notas importantes sobre ejecución y salida:
-
-- Si se pasa una carpeta, el CLI recorrerá los archivos regulares dentro de ella y procesará solo los tipos soportados.
-- Por defecto las transcripciones se guardan en la carpeta `transcripts` en la raíz del proyecto. Puede cambiarse con `--output-dir`.
-- Para entradas de video (por ejemplo `.mp4`) se extraerá el audio y se guardará temporalmente en la carpeta de salida antes de transcribir.
-
----
-
-## Parámetros y opciones (CLI)
-
-Posicionales:
-
-- `path` (obligatorio): Ruta a un archivo de audio/video o a una carpeta que contiene varios archivos a procesar.
-
-Opciones principales:
-
-- `--model`: Modelo Whisper a usar. Ejemplos: `tiny`, `base`, `small`, `medium`, `large`. Por defecto: `small`.
-- `--device`: `cuda` o `cpu`. Si no se especifica, el script detecta automáticamente `cuda` si hay GPU disponible, si no usa `cpu`. Si se solicita `cuda` y no hay GPU, cae a `cpu` con advertencia.
-- `--output-dir`: Directorio donde se guardarán los archivos `.txt` (por defecto `transcripts`).
-- `--chunk`: (entero, segundos) Tamaño en segundos para dividir el audio en fragmentos y transcribir por partes. Valor por defecto `0` (sin chunking). Ejemplo: `--chunk 120` divide el audio en fragmentos de 120 segundos.
-- `-h, --help`: Mostrar ayuda.
-
-Comportamiento de modelos y recomendaciones:
-
-- Modelos pequeños (`base`, `small`) consumen menos memoria y son más rápidos, pero la calidad de texto puede ser menor.
-- Modelos medianos/grandes (`medium`, `large`) requieren más memoria/GPU pero producen mejores transcripciones en audio ruidoso o con varios hablantes.
-
-Recomendación práctica:
-
-- Si dispone de GPU con suficiente VRAM, use `--model medium` o superior y `--device cuda`.
-- Para ejecuciones en CPU o entornos con pocos recursos, use `--model small` y `--device cpu`.
-
----
-
-## Soporte de formatos y dependencias externas
-
-Extensiones soportadas por el CLI:
-
-- Audio: `.wav`, `.mp3`, `.m4a`, `.flac`, `.aac`, `.ogg`.
-- Video: `.mp4`, `.mkv`, `.mov`, `.avi`, `.flv`, `.webm`.
-
-Dependencias externas y herramientas adicionales:
-
-- `ffmpeg` / `ffprobe`: Requeridas solo si se usa la opción `--chunk` (el script invoca `ffprobe` para obtener la duración y `ffmpeg` para recortar fragmentos). También `moviepy` usa `ffmpeg` para extraer audio de videos.
-- `tqdm` es opcional: si está instalado el script mostrará una barra de progreso más informativa al transcribir por chunks o al transcurrir la tarea.
-
-Si `ffmpeg`/`ffprobe` no están disponibles, el script intentará fallback (por ejemplo procesar sin chunking) pero la división por fragmentos puede no funcionar correctamente.
-
----
-
-## Formato de salida
-
-Por cada archivo procesado se crea un archivo `.txt` en el `--output-dir` con el mismo nombre base. El contenido actual es la transcripción simple (texto plano) resultante de Whisper y no incluye marcas de tiempo ni etiquetado de oradores en esta versión.
-
----
-
-## Resolución de problemas comunes
-
-- Error de memoria al cargar un modelo grande: bajar a un modelo (`medium`, `small`) o forzar `--device cpu`.
-- Archivo no reconocido u omitido al pasar una carpeta: compruebe la extensión; el CLI solo procesa archivos con extensiones soportadas listadas arriba.
-- Chunking no funciona o falla en la división: verifique que `ffprobe`/`ffmpeg` estén instalados y accesibles en PATH.
-
-Si aparece un error relacionado con dependencias de Python, instale las requeridas con:
-
-```bash
-pip install -r requirements.txt
-```
-
-Si desea una experiencia de barra de progreso más rica, instale `tqdm`:
-
-```bash
-pip install tqdm
+┌─────────────────────────────────────────────────────────────────┐
+│                        CLI (main.py)                           │
+│  ┌───────────┐  ┌──────────────┐  ┌─────────────────────────┐  │
+│  │   list    │  │   transcribe │  │        download         │  │
+│  └───────────┘  └──────────────┘  └─────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     config.py (Config)                          │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │ • AWS credentials  • S3 bucket/prefixes                │    │
+│  │ • Model settings   • Timeouts/retries                  │    │
+│  │ • Chunk sizes      • Validation limits                  │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+              ┌───────────────┴───────────────┐
+              ▼                               ▼
+┌─────────────────────────┐     ┌───────────────────────────────┐
+│    s3_client.py         │     │      transcribe.py            │
+│  ┌───────────────────┐ │     │  ┌─────────────────────────┐  │
+│  │ • list_objects    │ │     │  │ TranscriptionService    │  │
+│  │ • download_to_*   │ │     │  │  • validate_file        │  │
+│  │ • upload_text     │ │     │  │  • extract_audio        │  │
+│  │ • atomic uploads │ │     │  │  • transcribe_audio     │  │
+│  │ • retries/backoff │ │     │  │  • process_video        │  │
+│  └───────────────────┘ │     │  └─────────────────────────┘  │
+└─────────────────────────┘     └───────────────────────────────┘
+              │                               │
+              ▼                               ▼
+     ┌────────────────┐              ┌────────────────────┐
+     │  Amazon S3     │              │  Whisper (local)   │
+     │  Bucket        │              │  Model             │
+     └────────────────┘              └────────────────────┘
 ```
 
 ---
 
-## Contribuir
+## Sequence Diagram
 
-Las contribuciones son bienvenidas. Para cambios:
+```
+participant User
+participant CLI
+participant Config
+participant S3Client
+participant TranscriptionService
+participant Whisper
+participant S3Bucket
 
-1. Crear una rama nueva.
-2. Añadir tests o indicaciones claras de los cambios.
-3. Enviar un pull request.
-
-Para centrarse en mejoras de reconocimiento o soporte de formatos, revise [`main.py`](main.py:1) y actualice la documentación en [`README.md`](README.md:1).
+User->>CLI: python main.py transcribe videos/meeting.mp4
+CLI->>Config: load_config()
+Config-->>CLI: Config object
+CLI->>S3Client: download_to_file(videos/meeting.mp4)
+S3Client->>S3Bucket: GetObject
+S3Bucket-->>S3Client: Video stream
+S3Client-->>CLI: Local file
+CLI->>TranscriptionService: process_video()
+TranscriptionService->>TranscriptionService: extract_audio()
+TranscriptionService->>Whisper: transcribe(audio)
+Whisper-->>TranscriptionService: text
+TranscriptionService->>S3Client: upload_text()
+S3Client->>S3Bucket: PutObject (temp)
+S3Bucket-->>S3Client: ETag
+S3Client->>S3Bucket: CopyObject (final)
+S3Client->>S3Bucket: DeleteObject (temp)
+S3Client-->>CLI: S3 key
+CLI-->>User: Done
+```
 
 ---
 
-## Licencia
+## Prerequisites
 
-Indique aquí la licencia del proyecto (por ejemplo MIT). Si no hay una, añada un archivo `LICENSE` con la licencia deseada.
+- Python 3.8+
+- AWS credentials or IAM role with S3 access
+- ffmpeg (for audio extraction)
+- GPU with CUDA (optional, for faster transcription)
 
 ---
 
-Archivo(s) clave:
+## Installation
 
-- [`main.py`](main.py:1)
-- [`pyprojecct.toml`](pyprojecct.toml:1)
-- [`README.md`](README.md:1)
+1. **Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd meetings-transcript
+   ```
+
+2. **Create virtual environment**:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate  # Linux/Mac
+   # or
+   .venv\Scripts\activate     # Windows
+   ```
+
+3. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Install ffmpeg** (required for audio extraction):
+   ```bash
+   # Ubuntu/Debian
+   sudo apt-get install ffmpeg
+   
+   # macOS
+   brew install ffmpeg
+   
+   # Windows
+   choco install ffmpeg
+   ```
+
+---
+
+## Configuration
+
+Copy `.env.example` to `.env` and fill in your values:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your configuration:
+
+```env
+# AWS Credentials
+AWS_ACCESS_KEY_ID=your_access_key_id
+AWS_SECRET_ACCESS_KEY=your_secret_access_key
+AWS_REGION=us-east-1
+
+# S3 Configuration
+S3_BUCKET_NAME=your-bucket-name
+VIDEO_PREFIX=videos/
+TRANSCRIPTS_PREFIX=transcripts/
+
+# Transcription Settings
+MODEL_SIZE=small
+DEVICE=cpu
+TRANSCRIPT_CHUNK_SECONDS=0
+DOWNLOAD_CHUNK_BYTES=10485760
+
+# Timeouts
+S3_TIMEOUT=300
+TRANSCRIPTION_TIMEOUT=3600
+MAX_RETRIES=3
+```
+
+---
+
+## Usage
+
+### List available videos
+
+```bash
+python main.py list
+```
+
+Output:
+```
+Key                                                         Size      Last Modified
+-----------------------------------------------------------------------------------------------
+videos/meeting_jan_2024.mp4                               125.43MB  2024-01-15 14:30:00
+videos/team_sync.wav                                       45.21MB  2024-01-16 09:15:00
+
+Total: 2 videos
+```
+
+### Transcribe a specific video
+
+```bash
+python main.py transcribe videos/meeting_jan_2024.mp4
+```
+
+### Transcribe all videos
+
+```bash
+python main.py transcribe --all
+```
+
+### Transcribe with chunking (for large files)
+
+```bash
+python main.py transcribe videos/large_meeting.mp4 --transcript-chunk 120
+```
+
+### Download a transcription
+
+```bash
+python main.py download transcripts/meeting_jan_2024.mp4.txt
+```
+
+### Download to specific directory
+
+```bash
+python main.py download transcripts/meeting_jan_2024.mp4.txt -o ./output
+```
+
+---
+
+## CLI Examples
+
+### Full workflow
+
+```bash
+# 1. List available videos
+python main.py list
+
+# 2. Transcribe specific video
+python main.py transcribe videos/team_meeting.mp4
+
+# 3. Download the transcription
+python main.py download transcripts/team_meeting.mp4.txt -o ./downloads
+```
+
+### With custom environment file
+
+```bash
+python main.py --env production.env list
+python main.py --env production.env transcribe videos/meeting.mp4
+```
+
+### With verbose logging
+
+```bash
+python main.py --log-level DEBUG transcribe videos/meeting.mp4
+```
+
+---
+
+## AWS IAM Permissions
+
+Create an IAM policy with these permissions:
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListBucket"
+            ],
+            "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:DeleteObject",
+                "s3:CopyObject"
+            ],
+            "Resource": [
+                "arn:aws:s3:::YOUR_BUCKET_NAME/videos/*",
+                "arn:aws:s3:::YOUR_BUCKET_NAME/transcripts/*"
+            ]
+        }
+    ]
+}
+```
+
+Attach this policy to a user or role. If running on EC2, use an IAM instance profile instead.
+
+---
+
+## Running with LocalStack (Emulator)
+
+For local development without AWS:
+
+1. **Start LocalStack**:
+   ```bash
+   docker run -d -p 4566:4566 localstack/localstack
+   ```
+
+2. **Create bucket**:
+   ```bash
+   aws --endpoint-url=http://localhost:4566 s3 mb s3://test-bucket
+   ```
+
+3. **Upload test video**:
+   ```bash
+   aws --endpoint-url=http://localhost:4566 s3 cp video.mp4 s3://test-bucket/videos/
+   ```
+
+4. **Configure .env**:
+   ```env
+   AWS_ACCESS_KEY_ID=test
+   AWS_SECRET_ACCESS_KEY=test
+   AWS_REGION=us-east-1
+   S3_BUCKET_NAME=test-bucket
+   ```
+
+5. **Run CLI**:
+   ```bash
+   python main.py list
+   python main.py transcribe videos/video.mp4
+   ```
+
+---
+
+## Troubleshooting
+
+### Credential errors
+
+Ensure AWS credentials are set correctly:
+```bash
+aws configure
+# or set environment variables
+export AWS_ACCESS_KEY_ID=your_key
+export AWS_SECRET_ACCESS_KEY=your_secret
+```
+
+### ffmpeg not found
+
+Ensure ffmpeg is in your PATH:
+```bash
+ffmpeg -version
+```
+
+### CUDA out of memory
+
+Use CPU instead:
+```bash
+DEVICE=cpu python main.py transcribe video.mp4
+```
+
+### Large file chunking
+
+For files > 500MB, enable chunking:
+```bash
+python main.py transcribe large_video.mp4 --transcript-chunk 120
+```
+
+---
+
+## License
+
+MIT License
