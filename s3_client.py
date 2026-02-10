@@ -288,10 +288,10 @@ class S3Client:
                 "ContentType": content_type,
             }
             if metadata:
-                # Prefix metadata keys with x-amz-meta-
-                extra_args["Metadata"] = "; ".join(
-                    f"{k}={v}" for k, v in metadata.items()
-                )
+                # Pass metadata as dict with x-amz-meta- prefix - botocore requires dict type
+                extra_args["Metadata"] = {
+                    f"x-amz-meta-{k}": str(v) for k, v in metadata.items()
+                }
             extra_args["ContentType"] = content_type
 
             self.client.upload_fileobj(
@@ -334,8 +334,10 @@ class S3Client:
         if metadata:
 
             def _update_metadata():
-                self.client.put_object_metadata(
+                # Use copy_object with MetadataDirective=REPLACE to update metadata
+                self.client.copy_object(
                     Bucket=self.config.s3_bucket_name,
+                    CopySource={"Bucket": self.config.s3_bucket_name, "Key": final_key},
                     Key=final_key,
                     Metadata={f"x-amz-meta-{k}": str(v) for k, v in metadata.items()},
                     MetadataDirective="REPLACE",

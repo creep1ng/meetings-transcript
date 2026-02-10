@@ -13,7 +13,7 @@ import logging
 import os
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -248,7 +248,7 @@ def cmd_transcribe(args) -> None:
                         metadata={
                             "source_key": video_key,
                             "source_etag": file_obj.etag or "",
-                            "transcribed_at": datetime.utcnow().isoformat(),
+                            "transcribed_at": datetime.now(timezone.utc).isoformat(),
                             "model": config.model_size,
                             "duration_seconds": str(result.duration_seconds or 0),
                         },
