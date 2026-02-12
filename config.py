@@ -30,6 +30,14 @@ class Config:
     transcript_chunk_seconds: int = field(default=0)
     download_chunk_bytes: int = field(default=1024 * 1024 * 10)  # 10MB default
 
+    # Checkpointing and Spot handling
+    checkpoint_db: Optional[str] = field(default=None)
+    resume_checkpoint: bool = field(default=True)
+    reset_checkpoint: bool = field(default=False)
+    checkpoint_sync_s3_uri: Optional[str] = field(default=None)
+    spot_drain_enabled: bool = field(default=False)
+    spot_imds_poll_interval: float = field(default=0.0)
+
     # Concurrency
     max_concurrent_jobs: int = field(default=1)
 
@@ -115,6 +123,32 @@ class Config:
         if os.environ.get("DOWNLOAD_CHUNK_BYTES"):
             self.download_chunk_bytes = int(os.environ["DOWNLOAD_CHUNK_BYTES"])
 
+        # Checkpointing and Spot
+        if os.environ.get("CHECKPOINT_DB"):
+            self.checkpoint_db = os.environ["CHECKPOINT_DB"]
+        if os.environ.get("RESUME_CHECKPOINT"):
+            self.resume_checkpoint = os.environ["RESUME_CHECKPOINT"].lower() in (
+                "true",
+                "1",
+                "yes",
+            )
+        if os.environ.get("RESET_CHECKPOINT"):
+            self.reset_checkpoint = os.environ["RESET_CHECKPOINT"].lower() in (
+                "true",
+                "1",
+                "yes",
+            )
+        if os.environ.get("CHECKPOINT_SYNC_S3_URI"):
+            self.checkpoint_sync_s3_uri = os.environ["CHECKPOINT_SYNC_S3_URI"]
+        if os.environ.get("SPOT_DRAIN_ENABLED"):
+            self.spot_drain_enabled = os.environ["SPOT_DRAIN_ENABLED"].lower() in (
+                "true",
+                "1",
+                "yes",
+            )
+        if os.environ.get("SPOT_IMDS_POLL_INTERVAL"):
+            self.spot_imds_poll_interval = float(os.environ["SPOT_IMDS_POLL_INTERVAL"])
+
         # Concurrency
         if os.environ.get("MAX_CONCURRENT_JOBS"):
             self.max_concurrent_jobs = int(os.environ["MAX_CONCURRENT_JOBS"])
@@ -159,6 +193,9 @@ class Config:
 
         if self.transcript_chunk_seconds < 0:
             raise ValueError("TRANSCRIPT_CHUNK_SECONDS must be >= 0")
+
+        if self.spot_imds_poll_interval < 0:
+            raise ValueError("SPOT_IMDS_POLL_INTERVAL must be >= 0")
 
         if self.model_size not in ("tiny", "base", "small", "medium", "large", "turbo"):
             raise ValueError(
