@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
+from checkpoint import ShutdownCoordinator
 from config import load_config
 from s3_client import S3Client, S3Object
 from transcribe import TranscriptionResult, TranscriptionService
@@ -144,6 +145,20 @@ def cmd_transcribe(args) -> None:
         config = load_config(args.env)
         setup_logging(config.log_level)
 
+        # Initialize shutdown coordinator if spot drain is enabled
+        shutdown_coordinator: Optional[ShutdownCoordinator] = None
+        if args.spot_drain or config.spot_drain_enabled:
+            poll_interval = (
+                args.spot_imds_poll_interval or config.spot_imds_poll_interval
+            )
+            shutdown_coordinator = ShutdownCoordinator(
+                poll_imds=poll_interval > 0,
+                poll_interval=poll_interval if poll_interval > 0 else 10.0,
+            )
+            logger.info(
+                "Shutdown coordinator initialized (spot_drain=%s)", args.spot_drain
+            )
+
         transcribe_service = TranscriptionService(config)
         s3_client = S3Client(config) if source == "s3" else None
 
@@ -208,8 +223,15 @@ def cmd_transcribe(args) -> None:
 
         logger.info(f"Found {total_files} files to transcribe from {source}")
 
+        interrupted = False
+
         # Process S3 files
         for file_obj in s3_files:
+            if shutdown_coordinator and shutdown_coordinator.should_stop():
+                logger.warning("Shutdown requested, stopping S3 file processing")
+                interrupted = True
+                break
+
             video_key = file_obj.key
             video_size = file_obj.size_bytes
             logger.info(f"Processing S3: {video_key}")
@@ -237,7 +259,13 @@ def cmd_transcribe(args) -> None:
                 # Transcribe
                 output_path = tmp_path / Path(video_key).stem
                 result: TranscriptionResult = transcribe_service.process_video(
-                    local_video_path, output_path
+                    local_video_path,
+                    output_path,
+                    checkpoint_db=args.checkpoint_db,
+                    resume_checkpoint=args.resume,
+                    reset_checkpoint=args.reset_checkpoint,
+                    checkpoint_sync_s3_uri=args.checkpoint_sync_s3_uri,
+                    shutdown_coordinator=shutdown_coordinator,
                 )
 
                 if result.success:
@@ -259,6 +287,11 @@ def cmd_transcribe(args) -> None:
 
         # Process local files
         for local_path in local_files:
+            if shutdown_coordinator and shutdown_coordinator.should_stop():
+                logger.warning("Shutdown requested, stopping local file processing")
+                interrupted = True
+                break
+
             logger.info(f"Processing local: {local_path}")
 
             # Validate file
@@ -280,7 +313,13 @@ def cmd_transcribe(args) -> None:
 
             # Transcribe
             result: TranscriptionResult = transcribe_service.process_video(
-                local_path, output_path
+                local_path,
+                output_path,
+                checkpoint_db=args.checkpoint_db,
+                resume_checkpoint=args.resume,
+                reset_checkpoint=args.reset_checkpoint,
+                checkpoint_sync_s3_uri=args.checkpoint_sync_s3_uri,
+                shutdown_coordinator=shutdown_coordinator,
             )
 
             if result.success:
@@ -290,7 +329,13 @@ def cmd_transcribe(args) -> None:
 
         # Cleanup
         transcribe_service.cleanup()
-        print(f"\nTranscription complete")
+
+        if interrupted:
+            logger.warning("Transcription interrupted by shutdown request")
+            print(f"\nTranscription interrupted - checkpoint saved for resume")
+            sys.exit(2)
+        else:
+            print(f"\nTranscription complete")
 
     except Exception as e:
         logger.error(f"Transcription failed: {e}")
@@ -402,6 +447,51 @@ Environment:
         "-o",
         "--output",
         help="Output directory for local transcriptions",
+    )
+    # Checkpointing flags
+    transcribe_parser.add_argument(
+        "--checkpoint-db",
+        type=str,
+        default=None,
+        help="Path to checkpoint database (default: .mt_checkpoints/<file>/ckpt.sqlite)",
+    )
+    transcribe_parser.add_argument(
+        "--resume",
+        action="store_true",
+        dest="resume",
+        default=True,
+        help="Resume from existing checkpoint (default: True)",
+    )
+    transcribe_parser.add_argument(
+        "--no-resume",
+        action="store_false",
+        dest="resume",
+        help="Do not resume from existing checkpoint",
+    )
+    transcribe_parser.add_argument(
+        "--reset-checkpoint",
+        action="store_true",
+        default=False,
+        help="Reset checkpoint database before starting",
+    )
+    transcribe_parser.add_argument(
+        "--checkpoint-sync-s3-uri",
+        type=str,
+        default=None,
+        help="S3 URI to sync checkpoint database (not fully implemented in v1)",
+    )
+    # Spot interruption flags
+    transcribe_parser.add_argument(
+        "--spot-drain",
+        action="store_true",
+        default=False,
+        help="Enable graceful shutdown on Spot interruption signals",
+    )
+    transcribe_parser.add_argument(
+        "--spot-imds-poll-interval",
+        type=float,
+        default=0.0,
+        help="Interval in seconds for IMDSv2 spot interruption polling (0=disabled)",
     )
     transcribe_parser.set_defaults(func=cmd_transcribe)
 
