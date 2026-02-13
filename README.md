@@ -17,6 +17,13 @@ Transcribe videos from Amazon S3 to text using OpenAI Whisper. This application 
 - [AWS IAM Permissions](#aws-iam-permissions)
 - [Running with LocalStack (Emulator)](#running-with-localstack-emulator)
 - [Troubleshooting](#troubleshooting)
+- [Spot-safe per-chunk checkpointing](#spot-safe-per-chunk-checkpointing)
+  - [CLI flags](#cli-flags)
+  - [Spot interruption handling](#spot-interruption-handling)
+  - [Consistency guarantees](#consistency-guarantees)
+  - [Operational runbook](#operational-runbook)
+  - [Limitations and S3 notes](#limitations-and-s3-notes)
+  - [Testing and observability](#testing-and-observability)
 
 ---
 
@@ -471,6 +478,53 @@ For files > 500MB, enable chunking:
 ```bash
 python main.py transcribe large_video.mp4 --transcript-chunk 120
 ```
+
+---
+
+## Spot-safe per-chunk checkpointing
+
+This release introduces the per-chunk checkpoint system described in [`plans/spot_checkpointing_architecture.md`](plans/spot_checkpointing_architecture.md:1). Each media input (local file or S3 key) owns a SQLite checkpoint database plus chunk/final transcript artifacts that reside in the same storage component as the source. Local inputs default to `.mt_checkpoints/<file>/ckpt.sqlite`, while S3 inputs mirror the namespace under `s3://<bucket>/checkpoints/.../ckpt.sqlite`. The SQLite ledger becomes the source of truth for chunk state, leases, and metadata so resumed workers always agree on what remains to run.
+
+### CLI flags
+
+- `--checkpoint-db <path>` overrides the default SQLite location (see [`main.py`](main.py:452)).
+- `--resume` (default) / `--no-resume` control whether the CLI reuses an existing checkpoint.
+- `--reset-checkpoint` removes prior state so the job starts from scratch.
+- `--checkpoint-sync-s3-uri <s3://...>` currently surfaces the intended S3 path but does not yet upload the DB (the flag is routed through [`TranscriptionService.process_video()`](main.py:477)).
+- `--spot-drain` enables the `ShutdownCoordinator`, allowing the process to react to `SIGTERM`/`SIGINT` and Spot notices.
+- `--spot-imds-poll-interval <seconds>` controls the IMDSv2 polling cadence (`0` disables polling).
+
+Example:
+
+```bash
+SOURCE=s3 python main.py --spot-drain --spot-imds-poll-interval 5 transcribe --checkpoint-db /tmp/checkpoints/meeting/ckpt.sqlite videos/meeting.mp4
+```
+
+### Spot interruption handling
+
+With `--spot-drain`, the [`ShutdownCoordinator`](checkpoint.py:1) watches for `SIGTERM`/`SIGINT` and IMDSv2 spot notices (`http://169.254.169.254/latest/meta-data/spot/instance-action` using a token from `/latest/api/token`). On interruption it marks the worker as draining, stops leasing work, and either finishes or aborts the current chunk depending on how much time remains. Before the 120-second shutdown enforced by systemd/EC2 it checkpoints the WAL (`wal_checkpoint(TRUNCATE)`), closes the SQLite connection, uploads the consolidated DB when backing S3, and releases leases so the next worker can safely resume.
+
+### Consistency guarantees
+
+- **SQLite WAL + durability**: Each `ckpt.sqlite` runs in WAL mode with synchronous commits and `BEGIN IMMEDIATE` transactions to ensure a single writer. The WAL is checkpointed and the connection closed before uploading to S3 so only the consolidated file is stored.
+- **Atomic artifacts**: Local chunk transcripts are written to `.tmp` files, fsynced, renamed atomically, and the directory fsynced before marking the chunk `done`. S3 uploads reuse the temp-object + copy pattern from [`S3Client.upload_from_stream()`](s3_client.py:263) so chunk objects appear atomically.
+- **Idempotency & crash resilience**: Chunk identity builds on source fingerprint, chunk plan hash, and index so retries skip completed work. Corrupt artifacts (missing/mismatched hashes) are flagged and rerun, and partial runs leave `running`/`leased` statuses that the next worker can reclaim.
+
+### Operational runbook
+
+- **ASG / Spot Fleet**: Use a MixedInstancesPolicy-backed Auto Scaling Group whose user-data installs dependencies, obtains configuration, and enables `meetings-transcript-worker.service`. Feed work via SQS or S3 lease objects so only one worker owns each namespace, and run the CLI with `--source s3 --spot-drain --checkpoint-db ...` so checkpointing is active.
+- **systemd service + bootstrap**: Configure `meetings-transcript-worker.service` with `Restart=always`, `RestartSec=10`, `KillSignal=SIGTERM`, and `TimeoutStopSec=120`. The wrapper claims a lease, runs the CLI, and lets the shutdown coordinator flush checkpoints before systemd enforces the hard stop.
+- **Optional Step Functions**: Use per-file Step Functions tasks that launch ECS/EKS workers with exclusive SQLite ownership. Avoid per-chunk Step Functions unless you can guarantee exactly one writer touches the shared DB.
+
+### Limitations and S3 notes
+
+- `--checkpoint-sync-s3-uri` only logs the URI and forwards it to `TranscriptionService.process_video()`; the actual upload is planned for a future release.
+- SQLite cannot operate directly on S3, so workers download a local copy, checkpoint WAL, and upload only `ckpt.sqlite`. Guard the namespace with leases or lock objects (e.g., S3 locks with fencing tokens) so one worker writes the DB; otherwise uploads may overwrite each other.
+
+### Testing and observability
+
+- **Testing guidance**: Send `SIGTERM` while running with `--spot-drain` to verify the running chunk is completed or marked `abandoned` and the checkpoint flushes. Corrupt or delete chunk artifacts and restart to ensure the restart detects the mismatch and reruns the chunk. Run two workers on the same namespace to exercise lease renewal and SQLite locking (`busy_timeout`).
+- **Observability**: Enable `DEBUG` logs for `ShutdownCoordinator` lifecycle events, chunk transitions, and checkpoint flushes (logs already redact secrets via [`main.py`](main.py:35)). Monitor chunk retry counts, lease expirations, missing artifacts after restart, and `TranscriptionResult.error` rates, and expose checkpoint DB metrics (completed chunk counts, hash failures) for dashboards.
 
 ---
 

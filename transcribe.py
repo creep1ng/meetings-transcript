@@ -244,6 +244,7 @@ class TranscriptionService:
         reset_checkpoint: bool = False,
         checkpoint_sync_s3_uri: Optional[str] = None,
         shutdown_coordinator: Optional[ShutdownCoordinator] = None,
+        source_path: Optional[Path] = None,
     ) -> TranscriptionResult:
         """Transcribe an audio file using Whisper.
 
@@ -256,6 +257,7 @@ class TranscriptionService:
             reset_checkpoint: Whether to reset checkpoint before starting.
             checkpoint_sync_s3_uri: Optional S3 URI for checkpoint sync.
             shutdown_coordinator: Optional shutdown coordinator for graceful stop.
+            source_path: Optional original source path (for better checkpointing).
 
         Returns:
             TranscriptionResult with success status and text.
@@ -281,6 +283,7 @@ class TranscriptionService:
                     reset_checkpoint=reset_checkpoint,
                     checkpoint_sync_s3_uri=checkpoint_sync_s3_uri,
                     shutdown_coordinator=shutdown_coordinator,
+                    source_path=source_path,
                 )
             else:
                 if shutdown_coordinator and shutdown_coordinator.should_stop():
@@ -328,6 +331,7 @@ class TranscriptionService:
         reset_checkpoint: bool = False,
         checkpoint_sync_s3_uri: Optional[str] = None,
         shutdown_coordinator: Optional[ShutdownCoordinator] = None,
+        source_path: Optional[Path] = None,
     ) -> str:
         """Transcribe audio using chunking with per-chunk checkpointing.
 
@@ -341,6 +345,7 @@ class TranscriptionService:
             reset_checkpoint: Whether to reset checkpoint before starting.
             checkpoint_sync_s3_uri: Optional S3 URI for checkpoint sync.
             shutdown_coordinator: Optional shutdown coordinator for graceful stop.
+            source_path: Optional original source path (for better checkpointing).
 
         Returns:
             Combined transcription text.
@@ -381,10 +386,14 @@ class TranscriptionService:
                 )
 
             db_path = self._resolve_checkpoint_db_path(output_path, checkpoint_db)
+
+            # Use source_path instead of audio_path for checkpointing if provided
+            # This fixes resuming from video inputs since audio is regenerated
+            checkpoint_source = source_path if source_path else audio_path
             checkpoint = CheckpointManager(
                 db_path=db_path,
-                source_uri=str(audio_path),
-                fingerprint=self._compute_source_fingerprint(audio_path),
+                source_uri=str(checkpoint_source),
+                fingerprint=self._compute_source_fingerprint(checkpoint_source),
                 total_chunks=len(chunk_specs),
                 config=self.config,
                 resume=(
@@ -545,6 +554,7 @@ class TranscriptionService:
                 reset_checkpoint=reset_checkpoint,
                 checkpoint_sync_s3_uri=checkpoint_sync_s3_uri,
                 shutdown_coordinator=shutdown_coordinator,
+                source_path=video_path,
             )
 
             # Cleanup temp audio if created

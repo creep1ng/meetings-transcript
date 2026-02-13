@@ -234,7 +234,8 @@ def load_config(env_path: str = ".env") -> Config:
     Raises:
         ValueError: If required variables are missing or values are invalid.
     """
-    # Load .env file if it exists
+    # Load .env file if it exists and temporarily apply overrides
+    overrides: dict[str, str] = {}
     if os.path.exists(env_path):
         with open(env_path, "r", encoding="utf-8") as f:
             for line in f:
@@ -244,8 +245,19 @@ def load_config(env_path: str = ".env") -> Config:
                 if "=" not in line:
                     continue
                 key, val = line.split("=", 1)
-                # Only set if not already in environment
-                os.environ.setdefault(key.strip(), val.strip())
+                overrides[key.strip()] = val.strip()
 
-    # Create and validate configuration
-    return Config()
+    previous: dict[str, Optional[str]] = {}
+    for key, value in overrides.items():
+        previous[key] = os.environ.get(key)
+        os.environ[key] = value
+
+    try:
+        return Config()
+    finally:
+        # Restore environment so tests and other calls remain isolated
+        for key, old_value in previous.items():
+            if old_value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = old_value

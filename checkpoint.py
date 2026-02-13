@@ -161,23 +161,53 @@ class CheckpointManager:
         if row and self.resume:
             self.file_id = row[0]
             logger.info("Reusing checkpoint file %s", self.file_id)
+
+            # Reconcile any running chunks (mark as abandoned for retry)
+            cur.execute(
+                "UPDATE chunks SET status = 'retryable_failed', last_error = 'Chunk abandoned due to interruption', updated_at = ? WHERE file_id = ? AND status = 'running'",
+                (now, self.file_id),
+            )
+            self._conn.commit()
+            logger.debug(
+                "Reconciled %d running chunks to retryable_failed", cur.rowcount
+            )
             return
+
         self.file_id = f"file_{hashlib.sha256(self.source_uri.encode()).hexdigest()}"
+
+        # Use INSERT OR UPDATE instead of INSERT OR REPLACE to avoid ON DELETE CASCADE issues
         cur.execute(
             "INSERT OR REPLACE INTO jobs(job_id, created_at, status, updated_at) VALUES(?, ?, ?, ?)",
             (self.job_id, now, "running", now),
         )
-        cur.execute(
-            "INSERT OR REPLACE INTO files(file_id, job_id, source_uri, fingerprint, total_chunks, updated_at) VALUES(?, ?, ?, ?, ?, ?)",
-            (
-                self.file_id,
-                self.job_id,
-                self.source_uri,
-                self.fingerprint,
-                self.total_chunks,
-                now,
-            ),
-        )
+
+        # Check if file exists before inserting to avoid unnecessary deletes
+        cur.execute("SELECT 1 FROM files WHERE file_id = ?", (self.file_id,))
+        if cur.fetchone():
+            cur.execute(
+                "UPDATE files SET job_id = ?, source_uri = ?, fingerprint = ?, total_chunks = ?, updated_at = ? WHERE file_id = ?",
+                (
+                    self.job_id,
+                    self.source_uri,
+                    self.fingerprint,
+                    self.total_chunks,
+                    now,
+                    self.file_id,
+                ),
+            )
+        else:
+            cur.execute(
+                "INSERT INTO files(file_id, job_id, source_uri, fingerprint, total_chunks, updated_at) VALUES(?, ?, ?, ?, ?, ?)",
+                (
+                    self.file_id,
+                    self.job_id,
+                    self.source_uri,
+                    self.fingerprint,
+                    self.total_chunks,
+                    now,
+                ),
+            )
+
         self._conn.commit()
         logger.info("Initialized checkpoint file %s", self.file_id)
 
