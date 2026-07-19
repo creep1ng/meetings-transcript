@@ -1,19 +1,10 @@
 """Test configuration and fixtures."""
 
-import os
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-
-# Set test environment before importing modules
-os.environ["AWS_ACCESS_KEY_ID"] = "testing"
-os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
-os.environ["AWS_REGION"] = "us-east-1"
-os.environ["S3_BUCKET_NAME"] = "test-bucket"
-os.environ["VIDEO_PREFIX"] = "videos/"
-os.environ["TRANSCRIPTS_PREFIX"] = "transcripts/"
 
 
 @pytest.fixture
@@ -27,9 +18,9 @@ def temp_dir():
 def mock_s3_client():
     """Create a mock S3 client."""
     from config import Config
-    from s3_client import S3Client, S3Object
+    from s3_client import S3Client
 
-    config = Config()
+    config = Config(source="s3", s3_bucket_name="test-bucket")
     client = S3Client.__new__(S3Client)
     client.config = config
     client._client = MagicMock()

@@ -201,8 +201,8 @@ class S3Client:
                     etag=obj.get("ETag", "").strip('"'),
                 )
 
-    def list_videos(self, extensions: Optional[tuple] = None) -> List[S3Object]:
-        """List video objects in the configured video prefix.
+    def list_media(self, extensions: Optional[tuple] = None) -> List[S3Object]:
+        """List media objects in the configured source prefix.
 
         Args:
             extensions: Optional tuple of extensions to filter.
@@ -210,10 +210,14 @@ class S3Client:
         Returns:
             List of S3Object instances.
         """
-        extensions = extensions or self.config.allowed_video_extensions
+        extensions = extensions or self.config.allowed_media_extensions
         return list(
             self.list_objects(prefix=self.config.video_prefix, extensions=extensions)
         )
+
+    def list_videos(self, extensions: Optional[tuple] = None) -> List[S3Object]:
+        """Compatibility wrapper for the former video-only method name."""
+        return self.list_media(extensions)
 
     def download_to_stream(self, key: str) -> io.BytesIO:
         """Download an S3 object to a streaming buffer.

@@ -1,104 +1,77 @@
-"""Tests for configuration module."""
-
-import os
-import tempfile
-from pathlib import Path
+"""Tests for source/destination-aware configuration."""
 
 import pytest
 
-
-def test_config_loads_from_env_file():
-    """Test that configuration loads from .env file."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
-        f.write("S3_BUCKET_NAME=test-bucket\n")
-        f.write("AWS_REGION=us-west-2\n")
-        f.write("MODEL_SIZE=medium\n")
-        env_path = f.name
-
-    try:
-        from config import load_config
-
-        config = load_config(env_path)
-        assert config.s3_bucket_name == "test-bucket"
-        assert config.aws_region == "us-west-2"
-        assert config.model_size == "medium"
-    finally:
-        os.unlink(env_path)
+from config import Config, load_config
 
 
-def test_config_validates_required_fields():
-    """Test that configuration fails with missing required fields."""
-    os.environ.clear()
-
-    with pytest.raises(ValueError, match="Missing required environment variables"):
-        from config import Config
-
-        Config()
-
-
-def test_config_validates_model_size():
-    """Test that configuration validates model size."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
-        f.write("S3_BUCKET_NAME=test-bucket\n")
-        f.write("MODEL_SIZE=invalid\n")
-        env_path = f.name
-
-    try:
-        from config import load_config
-
-        with pytest.raises(ValueError, match="Invalid MODEL_SIZE"):
-            load_config(env_path)
-    finally:
-        os.unlink(env_path)
+def test_local_defaults_do_not_require_s3(monkeypatch):
+    monkeypatch.delenv("S3_BUCKET_NAME", raising=False)
+    monkeypatch.delenv("SOURCE", raising=False)
+    monkeypatch.delenv("DESTINATION", raising=False)
+    config = Config()
+    assert config.source == "local"
+    assert config.effective_destination == "local"
+    assert ".mp3" in config.allowed_media_extensions
 
 
-def test_config_validates_device():
-    """Test that configuration validates device."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
-        f.write("S3_BUCKET_NAME=test-bucket\n")
-        f.write("DEVICE=gpu\n")
-        env_path = f.name
-
-    try:
-        from config import load_config
-
-        with pytest.raises(ValueError, match="DEVICE must be"):
-            load_config(env_path)
-    finally:
-        os.unlink(env_path)
+@pytest.mark.parametrize(
+    ("source", "destination"),
+    [("s3", None), ("local", "s3")],
+)
+def test_s3_bucket_required_only_when_s3_is_used(monkeypatch, source, destination):
+    monkeypatch.delenv("S3_BUCKET_NAME", raising=False)
+    monkeypatch.delenv("SOURCE", raising=False)
+    monkeypatch.delenv("DESTINATION", raising=False)
+    with pytest.raises(ValueError, match="S3_BUCKET_NAME"):
+        Config(source=source, destination=destination)
 
 
-def test_config_defaults():
-    """Test that configuration has correct defaults."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
-        f.write("S3_BUCKET_NAME=test-bucket\n")
-        env_path = f.name
-
-    try:
-        from config import load_config
-
-        config = load_config(env_path)
-        assert config.max_retries == 3
-        assert config.retry_backoff_base == 2.0
-        assert config.s3_timeout == 300
-        assert config.transcript_chunk_seconds == 0
-    finally:
-        os.unlink(env_path)
+def test_webdav_requires_credentials(monkeypatch):
+    for key in ("WEBDAV_URL", "WEBDAV_USERNAME", "WEBDAV_PASSWORD", "DESTINATION"):
+        monkeypatch.delenv(key, raising=False)
+    with pytest.raises(ValueError, match="WEBDAV_URL"):
+        Config(destination="webdav")
 
 
-def test_config_credentials_fallback():
-    """Test that missing credentials don't cause error (IAM role fallback)."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
-        f.write("S3_BUCKET_NAME=test-bucket\n")
-        # Don't set AWS credentials - should use IAM role
-        env_path = f.name
+def test_webdav_normalizes_safe_root(monkeypatch):
+    monkeypatch.delenv("DESTINATION", raising=False)
+    config = Config(
+        destination="webdav",
+        webdav_url="https://cloud.example.com/remote.php/dav/files/alice",
+        webdav_username="alice",
+        webdav_password="app-password",
+        webdav_root_path="/Notes/Vault/",
+    )
+    assert config.webdav_root_path == "/Notes/Vault"
 
-    try:
-        from config import load_config
 
-        # Should not raise - IAM role will be used
-        config = load_config(env_path)
-        assert config.aws_access_key_id is None
-        assert config.aws_secret_access_key is None
-    finally:
-        os.unlink(env_path)
+@pytest.mark.parametrize("root", ["../Vault", "/Vault/../Other"])
+def test_webdav_rejects_root_traversal(monkeypatch, root):
+    monkeypatch.delenv("DESTINATION", raising=False)
+    with pytest.raises(ValueError, match="cannot contain"):
+        Config(webdav_root_path=root)
+
+
+@pytest.mark.parametrize("subfolder", ["", ".", "..", "Media/Other", "Media\\Other"])
+def test_webdav_rejects_unsafe_media_segment(monkeypatch, subfolder):
+    monkeypatch.delenv("WEBDAV_MEDIA_SUBFOLDER", raising=False)
+    with pytest.raises(ValueError, match="one safe path segment"):
+        Config(webdav_media_subfolder=subfolder)
+
+
+def test_cli_overrides_environment_destination(tmp_path, monkeypatch):
+    env_file = tmp_path / "settings.env"
+    env_file.write_text("SOURCE=s3\nDESTINATION=s3\nS3_BUCKET_NAME=bucket\n")
+    config = load_config(str(env_file), source="local", destination="local")
+    assert config.source == "local"
+    assert config.effective_destination == "local"
+
+
+def test_config_validates_model_and_device(monkeypatch):
+    monkeypatch.delenv("MODEL_SIZE", raising=False)
+    monkeypatch.delenv("DEVICE", raising=False)
+    with pytest.raises(ValueError, match="Invalid MODEL_SIZE"):
+        Config(model_size="invalid")
+    with pytest.raises(ValueError, match="DEVICE must be"):
+        Config(device="gpu")

@@ -1,6 +1,6 @@
 # Meetings Transcript
 
-Transcribe videos from Amazon S3 to text using OpenAI Whisper. This application downloads videos from S3, extracts audio, transcribes using Whisper, and uploads the resulting text back to S3.
+Transcribe MP3, audio, and video media from local storage or Amazon S3 using OpenAI Whisper. Publish plain-text transcripts locally or to S3, or publish Obsidian-ready Markdown to a Nextcloud WebDAV vault.
 
 ---
 
@@ -14,6 +14,7 @@ Transcribe videos from Amazon S3 to text using OpenAI Whisper. This application 
 - [Configuration](#configuration)
 - [Usage](#usage)
 - [CLI Examples](#cli-examples)
+- [Nextcloud WebDAV](#nextcloud-webdav)
 - [AWS IAM Permissions](#aws-iam-permissions)
 - [Running with LocalStack (Emulator)](#running-with-localstack-emulator)
 - [Troubleshooting](#troubleshooting)
@@ -30,6 +31,9 @@ Transcribe videos from Amazon S3 to text using OpenAI Whisper. This application 
 ## Features
 
 - **S3 Integration**: List, download, and upload objects from Amazon S3
+- **MP3 Ingestion**: Discover MP3 files locally and in S3 and send them directly to Whisper
+- **Independent Destinations**: Publish any local or S3 source to local storage, S3, or WebDAV
+- **Nextcloud Vault Publishing**: Select a vault folder interactively and upload Obsidian Markdown atomically
 - **Whisper Transcription**: Local transcription using OpenAI Whisper model
 - **Audio Extraction**: Extract audio from video files using ffmpeg
 - **Chunking Support**: Process large files by splitting into chunks
@@ -132,8 +136,9 @@ CLI-->>User: Done
 
 ## Prerequisites
 
-- Python 3.8+
-- AWS credentials or IAM role with S3 access
+- Python 3.13+
+- AWS credentials or IAM role only when the source or destination is S3
+- A Nextcloud app password only when the destination is WebDAV
 - ffmpeg (for audio extraction)
 - GPU with CUDA (optional, for faster transcription)
 
@@ -184,9 +189,9 @@ cp .env.example .env
 
 ### Source Configuration
 
-The application supports two sources for videos:
-- **local** (default): Process local video files or folders
-- **s3**: Process videos from Amazon S3 bucket
+The application supports two media sources:
+- **local** (default): Process local audio/video files or folders
+- **s3**: Process media from an Amazon S3 bucket
 
 You can configure the default source in `.env`:
 
@@ -205,9 +210,19 @@ python main.py --source s3 transcribe videos/meeting.mp4
 python main.py --source local transcribe ./my_videos
 ```
 
+Source and destination are independent. Destination precedence is the global
+`--destination` CLI flag, then `DESTINATION`, then the legacy source-derived
+default: local→local and S3→S3.
+
+```bash
+python main.py --destination s3 transcribe meeting.mp3
+python main.py --source s3 --destination local transcribe videos/meeting.mp3
+python main.py --source s3 --destination webdav transcribe --all
+```
+
 ### S3 Configuration
 
-Required when using S3 source:
+Required when using S3 as either source or destination:
 
 ```env
 # AWS Credentials
@@ -239,7 +254,7 @@ MAX_RETRIES=3
 
 ## Usage
 
-### List available videos
+### List available media
 
 ```bash
 python main.py list
@@ -255,10 +270,11 @@ videos/team_sync.wav                                       45.21MB  2024-01-16 0
 Total: 2 videos
 ```
 
-### Transcribe a specific video
+### Transcribe specific media
 
 ```bash
 python main.py transcribe videos/meeting_jan_2024.mp4
+python main.py transcribe recordings/class.mp3
 ```
 
 ### Transcribe all videos
@@ -372,6 +388,58 @@ python main.py --env production.env transcribe videos/meeting.mp4
 ```bash
 python main.py --log-level DEBUG transcribe videos/meeting.mp4
 ```
+
+---
+
+## Nextcloud WebDAV
+
+WebDAV publishing is intended for a Nextcloud-backed Obsidian vault. Configure
+the credential-free user files endpoint and a dedicated app password:
+
+```env
+DESTINATION=webdav
+WEBDAV_URL=https://cloud.example.com/remote.php/dav/files/username
+WEBDAV_USERNAME=username
+WEBDAV_PASSWORD=nextcloud-app-password
+WEBDAV_ROOT_PATH=/Notes/MyVault
+WEBDAV_MEDIA_SUBFOLDER=Media
+WEBDAV_TIMEOUT=30
+```
+
+`WEBDAV_ROOT_PATH` is the highest folder the selector may browse. The client
+rejects traversal outside it, indexes the complete subtree with breadth-first
+`PROPFIND Depth: 1` requests, and aborts if that index cannot be completed.
+`WEBDAV_MEDIA_SUBFOLDER` must be one safe path segment and defaults to `Media`.
+
+Run WebDAV publication from an interactive terminal:
+
+```bash
+python main.py --destination webdav transcribe recordings/class.mp3
+python main.py --source s3 --destination webdav transcribe --all
+```
+
+Selector keys:
+
+- `/` focuses fuzzy folder search.
+- `Enter` selects a tree or search result and shows the exact final destination.
+- `Escape` leaves search, returns from confirmation, or cancels selection.
+
+The folder is selected once per invocation. Every accepted item is written to
+`<selected>/Media/<complete-source-filename>.md`, such as `class.mp3.md`.
+Existing targets are reviewed before Whisper loads, with replace, skip, and
+cancel choices plus the remote modification date. The final upload uses a
+sibling temporary resource and `MOVE`; a target changed after preflight is
+reported as a conflict rather than silently overwritten.
+
+Each Markdown document contains YAML frontmatter fields `source_file`,
+`source_type`, `transcribed_at`, `model`, `duration_seconds`, and
+`source_modified_at`. `recorded_at` appears only when reliable embedded media
+metadata exists. Local mtime and S3 `LastModified` are never substituted for a
+recording date.
+
+If upload fails after transcription, the batch continues and exits non-zero.
+The generated Markdown remains recoverable under `transcripts/webdav-failed/`.
+WebDAV requires valid public HTTPS and credentials are redacted from logs.
 
 ---
 
