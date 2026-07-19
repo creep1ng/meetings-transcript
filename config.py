@@ -2,8 +2,26 @@
 
 import os
 from dataclasses import dataclass, field
-from pathlib import Path
+from ipaddress import ip_address
+from pathlib import PurePosixPath
 from typing import Optional
+from urllib.parse import urlsplit
+
+
+DEFAULT_MEDIA_EXTENSIONS = (
+    ".wav",
+    ".mp3",
+    ".m4a",
+    ".flac",
+    ".aac",
+    ".ogg",
+    ".mp4",
+    ".mov",
+    ".mkv",
+    ".avi",
+    ".flv",
+    ".webm",
+)
 
 
 @dataclass
@@ -17,11 +35,22 @@ class Config:
 
     # Source configuration
     source: str = field(default="local")  # local or s3
+    destination: Optional[str] = field(
+        default=None
+    )  # local, s3, webdav, or legacy default
 
     # S3 bucket configuration (required for S3 source)
     s3_bucket_name: Optional[str] = field(default=None)
     video_prefix: str = field(default="videos/")
     transcripts_prefix: str = field(default="transcripts/")
+
+    # Nextcloud WebDAV configuration
+    webdav_url: Optional[str] = field(default=None)
+    webdav_username: Optional[str] = field(default=None)
+    webdav_password: Optional[str] = field(default=None)
+    webdav_root_path: str = field(default="/")
+    webdav_media_subfolder: str = field(default="Media")
+    webdav_timeout: int = field(default=30)
 
     # Transcription settings
     transcript_provider: str = field(default="whisper/local")
@@ -49,8 +78,8 @@ class Config:
 
     # Validation limits
     max_file_size_bytes: int = field(default=1024 * 1024 * 1024 * 2)  # 2GB default
-    allowed_video_extensions: tuple = field(
-        default_factory=lambda: (".mp4", ".mov", ".mkv", ".wav")
+    allowed_media_extensions: tuple[str, ...] = field(
+        default_factory=lambda: DEFAULT_MEDIA_EXTENSIONS
     )
 
     # Logging and tracing
@@ -74,14 +103,26 @@ class Config:
         has_access_key = self.aws_access_key_id is not None
         has_secret_key = self.aws_secret_access_key is not None
 
-        if has_access_key != has_secret_key:
-            raise ValueError(
-                "Both AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set together, "
-                "or neither (to use IAM role/SSO)."
-            )
+        if self.source == "s3" or self.effective_destination == "s3":
+            if self.s3_bucket_name is None:
+                missing.append("S3_BUCKET_NAME")
 
-        if self.s3_bucket_name is None:
-            missing.append("S3_BUCKET_NAME")
+        if self.effective_destination == "webdav":
+            for name, value in (
+                ("WEBDAV_URL", self.webdav_url),
+                ("WEBDAV_USERNAME", self.webdav_username),
+                ("WEBDAV_PASSWORD", self.webdav_password),
+            ):
+                if not value:
+                    missing.append(name)
+
+        if self.source == "s3" or self.effective_destination == "s3":
+            # Check AWS credentials only when S3 is actually used.
+            if has_access_key != has_secret_key:
+                raise ValueError(
+                    "Both AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set together, "
+                    "or neither (to use IAM role/SSO)."
+                )
 
         if missing:
             raise ValueError(
@@ -99,9 +140,11 @@ class Config:
         if os.environ.get("AWS_REGION"):
             self.aws_region = os.environ["AWS_REGION"]
 
-        # Source configuration
+        # Source and destination configuration
         if os.environ.get("SOURCE"):
             self.source = os.environ["SOURCE"]
+        if os.environ.get("DESTINATION"):
+            self.destination = os.environ["DESTINATION"]
 
         # S3 configuration
         if os.environ.get("S3_BUCKET_NAME"):
@@ -110,6 +153,20 @@ class Config:
             self.video_prefix = os.environ["VIDEO_PREFIX"]
         if os.environ.get("TRANSCRIPTS_PREFIX"):
             self.transcripts_prefix = os.environ["TRANSCRIPTS_PREFIX"]
+
+        # WebDAV configuration
+        if os.environ.get("WEBDAV_URL"):
+            self.webdav_url = os.environ["WEBDAV_URL"]
+        if os.environ.get("WEBDAV_USERNAME"):
+            self.webdav_username = os.environ["WEBDAV_USERNAME"]
+        if os.environ.get("WEBDAV_PASSWORD"):
+            self.webdav_password = os.environ["WEBDAV_PASSWORD"]
+        if os.environ.get("WEBDAV_ROOT_PATH"):
+            self.webdav_root_path = os.environ["WEBDAV_ROOT_PATH"]
+        if os.environ.get("WEBDAV_MEDIA_SUBFOLDER"):
+            self.webdav_media_subfolder = os.environ["WEBDAV_MEDIA_SUBFOLDER"]
+        if os.environ.get("WEBDAV_TIMEOUT"):
+            self.webdav_timeout = int(os.environ["WEBDAV_TIMEOUT"])
 
         # Transcription settings
         if os.environ.get("TRANSCRIBE_PROVIDER"):
@@ -197,6 +254,9 @@ class Config:
         if self.spot_imds_poll_interval < 0:
             raise ValueError("SPOT_IMDS_POLL_INTERVAL must be >= 0")
 
+        if self.webdav_timeout <= 0:
+            raise ValueError("WEBDAV_TIMEOUT must be > 0")
+
         if self.model_size not in ("tiny", "base", "small", "medium", "large", "turbo"):
             raise ValueError(
                 f"Invalid MODEL_SIZE: {self.model_size}. "
@@ -210,9 +270,23 @@ class Config:
         if self.source not in ("local", "s3"):
             raise ValueError(f"Invalid SOURCE: {self.source}. Must be 'local' or 's3'.")
 
-        # Validate S3 bucket is required for S3 source
-        if self.source == "s3" and self.s3_bucket_name is None:
-            raise ValueError("S3_BUCKET_NAME is required when SOURCE='s3'.")
+        if self.destination not in (None, "local", "s3", "webdav"):
+            raise ValueError(
+                f"Invalid DESTINATION: {self.destination}. "
+                "Must be 'local', 's3', or 'webdav'."
+            )
+
+        self.webdav_root_path = self._normalize_webdav_root(self.webdav_root_path)
+        if (
+            not self.webdav_media_subfolder
+            or self.webdav_media_subfolder in (".", "..")
+            or "/" in self.webdav_media_subfolder
+            or "\\" in self.webdav_media_subfolder
+        ):
+            raise ValueError("WEBDAV_MEDIA_SUBFOLDER must be one safe path segment.")
+
+        if self.effective_destination == "webdav":
+            self._validate_webdav_url()
 
         # Validate provider is supported
         if self.transcript_provider != "whisper/local":
@@ -221,8 +295,51 @@ class Config:
                 "Only 'whisper/local' is currently supported."
             )
 
+    @property
+    def effective_destination(self) -> str:
+        """Resolve destination while preserving legacy source-derived behavior."""
+        return self.destination or self.source
 
-def load_config(env_path: str = ".env") -> Config:
+    @property
+    def allowed_video_extensions(self) -> tuple[str, ...]:
+        """Compatibility alias for callers using the old video-only name."""
+        return self.allowed_media_extensions
+
+    @staticmethod
+    def _normalize_webdav_root(value: str) -> str:
+        raw_parts = value.replace("\\", "/").split("/")
+        if ".." in raw_parts:
+            raise ValueError("WEBDAV_ROOT_PATH cannot contain '..'.")
+        normalized = PurePosixPath("/", value.lstrip("/"))
+        return "/" if str(normalized) == "/" else str(normalized).rstrip("/")
+
+    def _validate_webdav_url(self) -> None:
+        parsed = urlsplit(self.webdav_url or "")
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("WEBDAV_URL must be a credential-free HTTPS endpoint URL.")
+        if parsed.hostname.lower() == "localhost":
+            raise ValueError("WEBDAV_URL must use a public HTTPS host.")
+        try:
+            address = ip_address(parsed.hostname)
+        except ValueError:
+            pass
+        else:
+            if not address.is_global:
+                raise ValueError("WEBDAV_URL must use a public HTTPS host.")
+
+
+def load_config(
+    env_path: str = ".env",
+    source: Optional[str] = None,
+    destination: Optional[str] = None,
+) -> Config:
     """Load configuration from environment variables and .env file.
 
     Args:
@@ -251,6 +368,12 @@ def load_config(env_path: str = ".env") -> Config:
     for key, value in overrides.items():
         previous[key] = os.environ.get(key)
         os.environ[key] = value
+
+    for key, value in (("SOURCE", source), ("DESTINATION", destination)):
+        if value is not None:
+            if key not in previous:
+                previous[key] = os.environ.get(key)
+            os.environ[key] = value
 
     try:
         return Config()

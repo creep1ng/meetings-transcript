@@ -5,7 +5,6 @@ import json
 import logging
 import math
 import os
-import shutil
 import subprocess
 import tempfile
 import time
@@ -18,7 +17,7 @@ import torch
 import whisper
 
 from checkpoint import CheckpointManager, ChunkSpec, ShutdownCoordinator
-from config import Config as AppConfig
+from config import DEFAULT_MEDIA_EXTENSIONS, Config as AppConfig
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +51,7 @@ class TranscriptionService:
 
     SUPPORTED_AUDIO_EXTS = (".wav", ".mp3", ".m4a", ".flac", ".aac", ".ogg")
     SUPPORTED_VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".avi", ".flv", ".webm")
+    SUPPORTED_MEDIA_EXTS = DEFAULT_MEDIA_EXTENSIONS
 
     def __init__(self, config: AppConfig):
         """Initialize transcription service.
@@ -94,7 +94,7 @@ class TranscriptionService:
         ext = Path(key).suffix.lower()
 
         # Check extension
-        allowed_exts = self.SUPPORTED_AUDIO_EXTS + self.SUPPORTED_VIDEO_EXTS
+        allowed_exts = self.config.allowed_media_extensions
         if ext not in allowed_exts:
             return False, f"Unsupported file extension: {ext}. Allowed: {allowed_exts}"
 
@@ -137,7 +137,7 @@ class TranscriptionService:
         ]
 
         try:
-            result = subprocess.run(
+            subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
@@ -245,6 +245,8 @@ class TranscriptionService:
         checkpoint_sync_s3_uri: Optional[str] = None,
         shutdown_coordinator: Optional[ShutdownCoordinator] = None,
         source_path: Optional[Path] = None,
+        source_uri: Optional[str] = None,
+        source_fingerprint: Optional[str] = None,
     ) -> TranscriptionResult:
         """Transcribe an audio file using Whisper.
 
@@ -284,6 +286,8 @@ class TranscriptionService:
                     checkpoint_sync_s3_uri=checkpoint_sync_s3_uri,
                     shutdown_coordinator=shutdown_coordinator,
                     source_path=source_path,
+                    source_uri=source_uri,
+                    source_fingerprint=source_fingerprint,
                 )
             else:
                 if shutdown_coordinator and shutdown_coordinator.should_stop():
@@ -332,6 +336,8 @@ class TranscriptionService:
         checkpoint_sync_s3_uri: Optional[str] = None,
         shutdown_coordinator: Optional[ShutdownCoordinator] = None,
         source_path: Optional[Path] = None,
+        source_uri: Optional[str] = None,
+        source_fingerprint: Optional[str] = None,
     ) -> str:
         """Transcribe audio using chunking with per-chunk checkpointing.
 
@@ -392,8 +398,9 @@ class TranscriptionService:
             checkpoint_source = source_path if source_path else audio_path
             checkpoint = CheckpointManager(
                 db_path=db_path,
-                source_uri=str(checkpoint_source),
-                fingerprint=self._compute_source_fingerprint(checkpoint_source),
+                source_uri=source_uri or str(checkpoint_source),
+                fingerprint=source_fingerprint
+                or self._compute_source_fingerprint(checkpoint_source),
                 total_chunks=len(chunk_specs),
                 config=self.config,
                 resume=(
@@ -462,8 +469,7 @@ class TranscriptionService:
         for idx in range(total_chunks):
             chunk_file = chunk_dir / f"chunk_{idx:04d}.txt"
             if not chunk_file.exists():
-                logger.warning("Missing chunk artifact %s", chunk_file)
-                continue
+                raise RuntimeError(f"Missing chunk artifact: {chunk_file}")
             text = chunk_file.read_text(encoding="utf-8").strip()
             if text:
                 parts.append(text)
@@ -507,20 +513,22 @@ class TranscriptionService:
         normalized = json.dumps(payload, sort_keys=True)
         return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
-    def process_video(
+    def process_media(
         self,
-        video_path: Path,
+        media_path: Path,
         output_path: Path,
         checkpoint_db: Optional[str] = None,
         resume_checkpoint: Optional[bool] = None,
         reset_checkpoint: bool = False,
         checkpoint_sync_s3_uri: Optional[str] = None,
         shutdown_coordinator: Optional[ShutdownCoordinator] = None,
+        source_uri: Optional[str] = None,
+        source_fingerprint: Optional[str] = None,
     ) -> TranscriptionResult:
-        """Process a video file: extract audio and transcribe.
+        """Process a media file, extracting audio only for video containers.
 
         Args:
-            video_path: Path to video file.
+            media_path: Path to media file.
             output_path: Path to output transcription file.
             checkpoint_db: Optional path to checkpoint database.
             resume_checkpoint: Whether to resume from existing checkpoint.
@@ -531,18 +539,17 @@ class TranscriptionService:
         Returns:
             TranscriptionResult.
         """
-        start_time = time.time()
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            ext = video_path.suffix.lower()
+            ext = media_path.suffix.lower()
 
             # Extract audio if video
             if ext in self.SUPPORTED_VIDEO_EXTS:
                 audio_path = output_path.with_suffix(".wav")
-                self.extract_audio_from_video(video_path, audio_path)
+                self.extract_audio_from_video(media_path, audio_path)
             else:
-                audio_path = video_path
+                audio_path = media_path
 
             # Transcribe
             result = self.transcribe_audio(
@@ -554,23 +561,50 @@ class TranscriptionService:
                 reset_checkpoint=reset_checkpoint,
                 checkpoint_sync_s3_uri=checkpoint_sync_s3_uri,
                 shutdown_coordinator=shutdown_coordinator,
-                source_path=video_path,
+                source_path=media_path,
+                source_uri=source_uri,
+                source_fingerprint=source_fingerprint,
             )
 
             # Cleanup temp audio if created
-            if audio_path != video_path and audio_path.exists():
+            if audio_path != media_path and audio_path.exists():
                 audio_path.unlink()
 
             return result
 
         except Exception as e:
-            logger.error(f"Failed to process video {video_path}: {e}")
+            logger.error(f"Failed to process media {media_path}: {e}")
             return TranscriptionResult(
                 success=False,
                 text="",
                 key=str(output_path),
                 error=str(e),
             )
+
+    def process_video(
+        self,
+        video_path: Path,
+        output_path: Path,
+        checkpoint_db: Optional[str] = None,
+        resume_checkpoint: Optional[bool] = None,
+        reset_checkpoint: bool = False,
+        checkpoint_sync_s3_uri: Optional[str] = None,
+        shutdown_coordinator: Optional[ShutdownCoordinator] = None,
+        source_uri: Optional[str] = None,
+        source_fingerprint: Optional[str] = None,
+    ) -> TranscriptionResult:
+        """Compatibility wrapper for the former video-only entry point."""
+        return self.process_media(
+            video_path,
+            output_path,
+            checkpoint_db=checkpoint_db,
+            resume_checkpoint=resume_checkpoint,
+            reset_checkpoint=reset_checkpoint,
+            checkpoint_sync_s3_uri=checkpoint_sync_s3_uri,
+            shutdown_coordinator=shutdown_coordinator,
+            source_uri=source_uri,
+            source_fingerprint=source_fingerprint,
+        )
 
     def cleanup(self):
         """Clean up resources (model memory)."""

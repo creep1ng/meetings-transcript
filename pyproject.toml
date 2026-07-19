@@ -1,0 +1,19 @@
+[project]
+name = "meetings-transcript"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "boto3>=1.26.0",
+    "botocore>=1.29.0",
+    "openai-whisper>=20231106",
+    "rapidfuzz>=3.14.0",
+    "requests>=2.32.0",
+    "textual>=6.6.0",
+    "torch>=2.0.0",
+]
+
+[tool.mypy]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

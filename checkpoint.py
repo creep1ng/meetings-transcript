@@ -10,9 +10,9 @@ import time
 import urllib.error
 import urllib.request
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, NamedTuple, Optional, Sequence, Tuple
+from typing import Any, NamedTuple, Optional, Sequence, Tuple
 
 from config import Config as AppConfig
 
@@ -52,7 +52,7 @@ class CheckpointManager:
         self.sync_s3_uri = sync_s3_uri
         self.s3_client = s3_client
         self._conn: Optional[sqlite3.Connection] = None
-        self.job_id = f"job_{datetime.utcnow().isoformat()}"
+        self.job_id = f"job_{datetime.now(timezone.utc).isoformat()}"
         self.file_id: Optional[str] = None
 
         if reset and self.db_path.exists():
@@ -151,7 +151,7 @@ class CheckpointManager:
 
     def _ensure_file_and_job(self) -> None:
         assert self._conn is not None
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         cur = self._conn.cursor()
         cur.execute(
             "SELECT file_id FROM files WHERE source_uri = ? AND fingerprint = ?",
@@ -213,7 +213,7 @@ class CheckpointManager:
 
     def register_chunks(self, specs: Sequence[ChunkSpec]) -> None:
         assert self._conn is not None
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self._conn:
             for spec in specs:
                 chunk_id = f"chunk_{self.file_id}_{spec.index}"
@@ -234,7 +234,7 @@ class CheckpointManager:
     def claim_next_chunk(self) -> Optional[Tuple[int, float, float, str]]:
         if not self._conn:
             return None
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self._transaction():
             row = self._conn.execute(
                 "SELECT chunk_index, start_seconds, end_seconds, plan_hash, chunk_id FROM chunks WHERE file_id = ? AND status IN ('pending', 'retryable_failed', 'abandoned') ORDER BY chunk_index LIMIT 1",
@@ -253,7 +253,7 @@ class CheckpointManager:
     ) -> None:
         if not self._conn:
             return
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         chunk_id = f"chunk_{self.file_id}_{chunk_index}"
         with self._conn:
             self._conn.execute(
@@ -270,7 +270,7 @@ class CheckpointManager:
     ) -> None:
         if not self._conn:
             return
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         status = "permanent_failed" if permanent else "retryable_failed"
         chunk_id = f"chunk_{self.file_id}_{chunk_index}"
         with self._conn:
@@ -282,7 +282,7 @@ class CheckpointManager:
     def persist_final_output(self, uri: str, sha256: str) -> None:
         if not self._conn:
             return
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self._conn:
             self._conn.execute(
                 "UPDATE files SET final_output_uri = ?, final_output_sha256 = ?, updated_at = ? WHERE file_id = ?",
