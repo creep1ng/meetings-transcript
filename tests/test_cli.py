@@ -1,8 +1,11 @@
+import sys
 from argparse import Namespace
 from datetime import datetime, timezone
+from types import ModuleType
+
+import pytest
 
 import main
-import pytest
 from config import Config
 from media import MediaItem
 from transcribe import TranscriptionResult
@@ -41,7 +44,9 @@ def test_webdav_cancel_happens_before_transcription(tmp_path, monkeypatch):
     source = tmp_path / "class.mp3"
     source.write_bytes(b"audio")
     monkeypatch.setattr(main, "_load_runtime_config", lambda args: webdav_config())
-    monkeypatch.setattr(main, "select_webdav_folder", lambda client, media: None)
+    monkeypatch.setattr(
+        main, "select_webdav_folder", lambda client, media, filenames: None
+    )
     monkeypatch.setattr(
         main,
         "TranscriptionService",
@@ -94,3 +99,16 @@ def test_logging_redacts_webdav_secret_values(caplog):
     assert "alice" not in caplog.text
     assert "secret" not in caplog.text
     assert "***REDACTED***" in caplog.text
+
+
+def test_study_dispatch_imports_bootstrap_only_when_invoked(monkeypatch):
+    called = []
+    bootstrap = ModuleType("study.bootstrap")
+    bootstrap.run_study = lambda env: called.append(env) or 0
+    monkeypatch.setitem(sys.modules, "study.bootstrap", bootstrap)
+
+    parser = main.create_parser()
+    args = parser.parse_args(["--env", "academic.env", "study"])
+
+    assert args.func(args) == 0
+    assert called == ["academic.env"]

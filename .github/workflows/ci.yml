@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - run: uv sync --locked --group dev
+      - run: uv run --frozen pytest
+      - name: Reject unsupported Python
+        run: uv run --frozen python -c "import sys; assert sys.version_info[:2] == (3, 13)"

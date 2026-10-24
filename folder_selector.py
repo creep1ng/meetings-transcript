@@ -75,10 +75,16 @@ class FolderSelectorApp(App[Optional[str]]):
         Binding("escape", "back_or_cancel", "Back / Cancel"),
     ]
 
-    def __init__(self, client: WebDAVClient, media_subfolder: str):
+    def __init__(
+        self,
+        client: WebDAVClient,
+        media_subfolder: str,
+        filenames: tuple[str, ...] = (),
+    ):
         super().__init__()
         self.client = client
         self.media_subfolder = media_subfolder
+        self.filenames = filenames
         self.folders: list[WebDAVResource] = []
         self.result_paths: list[str] = []
         self.index_error: Optional[str] = None
@@ -86,6 +92,12 @@ class FolderSelectorApp(App[Optional[str]]):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         with Vertical(id="body"):
+            if self.filenames:
+                label = "File" if len(self.filenames) == 1 else "Files"
+                yield Label(
+                    f"{label} to transcribe: {', '.join(self.filenames)}",
+                    id="source-files",
+                )
             yield Input(
                 placeholder="Press / to fuzzy-search the complete vault", id="search"
             )
@@ -191,8 +203,12 @@ def rank_folders(folders: list[WebDAVResource], query: str) -> list[WebDAVResour
     return [entry[2] for entry in scored[:20]]
 
 
-def select_webdav_folder(client: WebDAVClient, media_subfolder: str) -> Optional[str]:
+def select_webdav_folder(
+    client: WebDAVClient,
+    media_subfolder: str,
+    filenames: tuple[str, ...] = (),
+) -> Optional[str]:
     """Run the selector only when an interactive terminal is available."""
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         raise RuntimeError("WebDAV folder selection requires an interactive terminal.")
-    return FolderSelectorApp(client, media_subfolder).run()
+    return FolderSelectorApp(client, media_subfolder, filenames).run()

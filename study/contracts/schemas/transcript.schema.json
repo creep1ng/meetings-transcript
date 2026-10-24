@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meetings-transcript.local/schemas/transcript.schema.json",
+  "title": "Canonical study transcript v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "status",
+    "source",
+    "assignment",
+    "language",
+    "revisions",
+    "phases",
+    "errors",
+    "speakers",
+    "segments"
+  ],
+  "properties": {
+    "version": {"const": 1},
+    "status": {"enum": ["complete", "partial"]},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "duration_ms"],
+      "properties": {
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "duration_ms": {"type": "integer", "minimum": 0}
+      }
+    },
+    "assignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["course", "class_date"],
+      "properties": {
+        "course": {"type": ["string", "null"], "minLength": 1, "maxLength": 200},
+        "class_date": {
+          "type": ["string", "null"],
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        }
+      }
+    },
+    "language": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested", "detected"],
+      "properties": {
+        "requested": {"enum": ["auto", "en", "es"]},
+        "detected": {"type": ["string", "null"], "minLength": 2, "maxLength": 20}
+      }
+    },
+    "revisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pipeline", "asr", "alignment", "diarization"],
+      "properties": {
+        "pipeline": {"type": ["string", "null"], "maxLength": 200},
+        "asr": {"type": ["string", "null"], "maxLength": 200},
+        "alignment": {"type": ["string", "null"], "maxLength": 200},
+        "diarization": {"type": ["string", "null"], "maxLength": 200}
+      }
+    },
+    "phases": {
+      "type": "object",
+      "additionalProperties": {"enum": ["completed", "failed", "skipped"]},
+      "required": ["asr", "alignment", "diarization"]
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["phase", "message"],
+        "properties": {
+          "phase": {"type": "string", "minLength": 1, "maxLength": 40},
+          "message": {"type": "string", "minLength": 1, "maxLength": 500}
+        }
+      }
+    },
+    "speakers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anonymous_ids", "display_names"],
+      "properties": {
+        "anonymous_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^SPEAKER_[0-9]{2,}$"}
+        },
+        "display_names": {
+          "type": "object",
+          "propertyNames": {"pattern": "^SPEAKER_[0-9]{2,}$"},
+          "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 80}
+        }
+      }
+    },
+    "segments": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/segment"}
+    }
+  },
+  "$defs": {
+    "speaker": {
+      "type": ["string", "null"],
+      "pattern": "^SPEAKER_[0-9]{2,}$"
+    },
+    "milliseconds": {"type": "integer", "minimum": 0},
+    "nullableMilliseconds": {"type": ["integer", "null"], "minimum": 0},
+    "word": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_ms", "end_ms", "text", "speaker"],
+      "properties": {
+        "start_ms": {"$ref": "#/$defs/nullableMilliseconds"},
+        "end_ms": {"$ref": "#/$defs/nullableMilliseconds"},
+        "text": {"type": "string"},
+        "speaker": {"$ref": "#/$defs/speaker"}
+      }
+    },
+    "segment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_ms", "end_ms", "text", "speaker", "words"],
+      "properties": {
+        "start_ms": {"$ref": "#/$defs/milliseconds"},
+        "end_ms": {"$ref": "#/$defs/milliseconds"},
+        "text": {"type": "string"},
+        "speaker": {"$ref": "#/$defs/speaker"},
+        "words": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/word"}
+        }
+      }
+    }
+  }
+}

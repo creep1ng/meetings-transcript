@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meetings-transcript.local/schemas/class-package.schema.json",
+  "title": "Class package manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "course", "class_date", "updated_at", "assets"],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "course": {
+      "$ref": "#/$defs/pathComponent"
+    },
+    "class_date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/fileAsset"
+          },
+          {
+            "$ref": "#/$defs/linkAsset"
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "pathComponent": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "pattern": "(^\\.{1,2}$)|[/\\\\\\u0000]|^[A-Za-z]:"
+      }
+    },
+    "fileAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "filename",
+        "kind",
+        "media_type",
+        "size",
+        "sha256",
+        "original_filename",
+        "status",
+        "derived_from"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "type": {
+          "const": "file"
+        },
+        "filename": {
+          "$ref": "#/$defs/pathComponent"
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "media_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "original_filename": {
+          "$ref": "#/$defs/pathComponent"
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "derived_from": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/stableId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "linkAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "url", "label"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "type": {
+          "const": "link"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

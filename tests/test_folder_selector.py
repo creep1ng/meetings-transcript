@@ -32,9 +32,11 @@ class FakeClient:
 
 @pytest.mark.asyncio
 async def test_app_indexes_and_live_searches_with_slash_binding():
-    app = FolderSelectorApp(FakeClient(), "Media")
+    app = FolderSelectorApp(FakeClient(), "Media", ("class.mp3",))
     async with app.run_test() as pilot:
         await pilot.pause()
+        source = app.query_one("#source-files", Label)
+        assert "File to transcribe: class.mp3" in str(source.render())
         assert "Indexed 3 folders" in str(app.query_one("#status", Label).render())
         await pilot.press("slash")
         search = app.query_one("#search", Input)

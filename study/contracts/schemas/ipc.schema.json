@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meetings-transcript.local/schemas/study-ipc-v1.json",
+  "title": "Study worker newline-delimited IPC v1",
+  "oneOf": [
+    { "$ref": "#/$defs/hello" },
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/event" },
+    { "$ref": "#/$defs/successResponse" },
+    { "$ref": "#/$defs/errorResponse" }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/artifact" }
+    },
+    "hello": {
+      "type": "object",
+      "required": [
+        "type",
+        "protocol_version",
+        "pipeline_revision",
+        "pipeline_signature",
+        "requests"
+      ],
+      "properties": {
+        "type": { "const": "hello" },
+        "protocol_version": { "const": 1 },
+        "pipeline_revision": { "type": "string", "minLength": 1 },
+        "pipeline_signature": { "$ref": "#/$defs/sha256" },
+        "requests": {
+          "type": "array",
+          "items": { "enum": ["ping", "shutdown", "transcribe"] },
+          "contains": { "const": "transcribe" },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "assignment": {
+      "type": "object",
+      "properties": {
+        "course": { "type": "string", "minLength": 1 },
+        "class_date": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "checkpoint": {
+      "type": "object",
+      "required": ["phase", "path", "sha256"],
+      "properties": {
+        "phase": { "enum": ["asr", "alignment", "diarization"] },
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
+    "transcribeParams": {
+      "type": "object",
+      "required": [
+        "source_path",
+        "source_sha256",
+        "staging_dir",
+        "media_kind",
+        "language",
+        "start_phase",
+        "checkpoints"
+      ],
+      "properties": {
+        "source_path": { "type": "string", "minLength": 1 },
+        "source_sha256": { "$ref": "#/$defs/sha256" },
+        "staging_dir": { "type": "string", "minLength": 1 },
+        "media_kind": { "enum": ["audio", "video"] },
+        "language": { "enum": ["auto", "en", "es"] },
+        "start_phase": { "enum": ["asr", "alignment", "diarization"] },
+        "checkpoints": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/checkpoint" },
+          "maxItems": 3
+        },
+        "assignment": { "$ref": "#/$defs/assignment" },
+        "min_speakers": { "type": "integer", "minimum": 1 },
+        "max_speakers": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "request": {
+      "type": "object",
+      "required": ["type", "protocol_version", "id", "method", "params"],
+      "properties": {
+        "type": { "const": "request" },
+        "protocol_version": { "const": 1 },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "method": { "enum": ["ping", "shutdown", "transcribe"] },
+        "params": { "type": "object" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "method": { "const": "transcribe" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/transcribeParams" } } },
+          "else": { "properties": { "params": { "maxProperties": 0 } } }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "event": {
+      "type": "object",
+      "required": ["type", "id", "event", "phase", "state"],
+      "properties": {
+        "type": { "const": "event" },
+        "id": { "type": "string", "minLength": 1 },
+        "event": { "const": "phase" },
+        "phase": { "type": "string", "minLength": 1 },
+        "state": { "enum": ["started", "completed", "failed"] }
+      },
+      "additionalProperties": false
+    },
+    "workerState": {
+      "type": "object",
+      "required": ["state"],
+      "properties": {
+        "state": { "enum": ["ready", "stopping"] },
+        "pipeline_signature": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
+    "transcriptionResult": {
+      "type": "object",
+      "required": [
+        "status",
+        "assigned",
+        "completed_phases",
+        "failed_phases",
+        "error",
+        "artifacts"
+      ],
+      "properties": {
+        "status": { "enum": ["complete", "partial"] },
+        "assigned": { "type": "boolean" },
+        "completed_phases": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "failed_phases": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "error": { "type": ["string", "null"] },
+        "pipeline_signature": { "$ref": "#/$defs/sha256" },
+        "profile": {
+          "type": "object",
+          "required": ["device", "compute_type"],
+          "properties": {
+            "device": { "enum": ["cpu", "cuda"] },
+            "compute_type": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "artifacts": { "$ref": "#/$defs/artifacts" }
+      },
+      "additionalProperties": false
+    },
+    "successResponse": {
+      "type": "object",
+      "required": ["type", "id", "ok", "result"],
+      "properties": {
+        "type": { "const": "response" },
+        "id": { "type": "string", "minLength": 1 },
+        "ok": { "const": true },
+        "result": {
+          "oneOf": [
+            { "$ref": "#/$defs/workerState" },
+            { "$ref": "#/$defs/transcriptionResult" }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "workerError": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "artifacts": { "$ref": "#/$defs/artifacts" }
+      },
+      "additionalProperties": false
+    },
+    "errorResponse": {
+      "type": "object",
+      "required": ["type", "id", "ok", "error"],
+      "properties": {
+        "type": { "const": "response" },
+        "id": { "type": ["string", "null"] },
+        "ok": { "const": false },
+        "error": { "$ref": "#/$defs/workerError" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

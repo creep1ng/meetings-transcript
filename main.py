@@ -38,6 +38,7 @@ class SensitiveFilter(logging.Filter):
         "AWS_SECRET_ACCESS_KEY",
         "WEBDAV_USERNAME",
         "WEBDAV_PASSWORD",
+        "HF_TOKEN",
     )
 
     def __init__(self, values: tuple[str, ...] = ()):
@@ -255,7 +256,11 @@ def _create_shutdown_coordinator(
 def _prepare_webdav_targets(
     items: list[MediaItem], client: WebDAVClient, config: Config
 ) -> Optional[tuple[dict[str, WebDAVTarget], int]]:
-    selected = select_webdav_folder(client, config.webdav_media_subfolder)
+    selected = select_webdav_folder(
+        client,
+        config.webdav_media_subfolder,
+        tuple(item.original_filename for item in items),
+    )
     if selected is None:
         return None
     media_path = str(PurePosixPath(selected) / config.webdav_media_subfolder)
@@ -435,6 +440,18 @@ def cmd_download(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_study(args: argparse.Namespace) -> int:
+    """Launch the academic organizer without importing it for legacy commands."""
+
+    try:
+        from study.bootstrap import run_study
+
+        return run_study(args.env)
+    except Exception as exc:
+        logger.error("Study organizer failed: %s", exc)
+        return 1
+
+
 def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Transcribe local or S3 media using Whisper",
@@ -490,6 +507,11 @@ Precedence: CLI flags, environment values, then legacy source-derived destinatio
     download_parser.add_argument("keys", nargs="+")
     download_parser.add_argument("-o", "--output")
     download_parser.set_defaults(func=cmd_download)
+
+    study_parser = subparsers.add_parser(
+        "study", help="Organize and transcribe local class materials"
+    )
+    study_parser.set_defaults(func=cmd_study)
     return parser
 
 

@@ -1,0 +1,1 @@
+"""Versioned academic data contracts."""

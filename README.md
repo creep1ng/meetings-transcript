@@ -1,6 +1,6 @@
 # Meetings Transcript
 
-Transcribe MP3, audio, and video media from local storage or Amazon S3 using OpenAI Whisper. Publish plain-text transcripts locally or to S3, or publish Obsidian-ready Markdown to a Nextcloud WebDAV vault.
+Transcribe meeting media with OpenAI Whisper, or organize local class materials and create timestamped WhisperX transcripts in a Nextcloud-synced academic library.
 
 ---
 
@@ -13,6 +13,7 @@ Transcribe MP3, audio, and video media from local storage or Amazon S3 using Ope
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Usage](#usage)
+- [Local-first study workflow](#local-first-study-workflow)
 - [CLI Examples](#cli-examples)
 - [Nextcloud WebDAV](#nextcloud-webdav)
 - [AWS IAM Permissions](#aws-iam-permissions)
@@ -35,6 +36,7 @@ Transcribe MP3, audio, and video media from local storage or Amazon S3 using Ope
 - **Independent Destinations**: Publish any local or S3 source to local storage, S3, or WebDAV
 - **Nextcloud Vault Publishing**: Select a vault folder interactively and upload Obsidian Markdown atomically
 - **Whisper Transcription**: Local transcription using OpenAI Whisper model
+- **Academic Organizer**: Root-confined local TUI for course/date packages and recoverable WhisperX jobs
 - **Audio Extraction**: Extract audio from video files using ffmpeg
 - **Chunking Support**: Process large files by splitting into chunks
 - **Atomic Uploads**: Safe uploads to S3 using temporary keys and copy operations
@@ -52,6 +54,7 @@ flowchart TB
         cmd1["list"]
         cmd2["transcribe"]
         cmd3["download"]
+        cmd4["study (lazy)"]
     end
 
     subgraph Config ["config.py (Config)"]
@@ -136,7 +139,8 @@ CLI-->>User: Done
 
 ## Prerequisites
 
-- Python 3.13+
+- Python 3.13 only (`>=3.13,<3.14`)
+- [uv](https://docs.astral.sh/uv/) for the locked environment
 - AWS credentials or IAM role only when the source or destination is S3
 - A Nextcloud app password only when the destination is WebDAV
 - ffmpeg (for audio extraction)
@@ -152,20 +156,12 @@ CLI-->>User: Done
    cd meetings-transcript
    ```
 
-2. **Create virtual environment**:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # Linux/Mac
-   # or
-   .venv\Scripts\activate     # Windows
-   ```
+2. **Install the locked Python 3.13 environment**:
+    ```bash
+    uv sync --locked --group dev
+    ```
 
-3. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Install ffmpeg** (required for audio extraction):
+3. **Install ffmpeg** (required for audio extraction):
    ```bash
    # Ubuntu/Debian
    sudo apt-get install ffmpeg
@@ -388,6 +384,97 @@ python main.py --env production.env transcribe videos/meeting.mp4
 ```bash
 python main.py --log-level DEBUG transcribe videos/meeting.mp4
 ```
+
+---
+
+## Local-first study workflow
+
+`study` manages local files only. Point `ACADEMIC_LIBRARY_ROOT` at a folder
+already synchronized by the Nextcloud desktop client; the academic workflow
+never calls WebDAV and never stores its SQLite database or staging files in the
+synced tree.
+
+### Quick path
+
+1. Accept the Hugging Face license for
+   `pyannote/speaker-diarization-community-1`.
+2. Configure the required library root and provision the models once.
+3. Remove `HF_TOKEN`, restore offline mode, and launch the organizer.
+
+```env
+ACADEMIC_LIBRARY_ROOT=/home/username/Nextcloud/Academic
+ACADEMIC_SOURCE_ROOT=/home/username
+ACADEMIC_START_PATH=/home/username/Downloads
+ACADEMIC_LANGUAGE=es
+ACADEMIC_MODEL=large-v3
+ACADEMIC_DEVICE=auto
+ACADEMIC_COMPUTE_TYPE=auto
+ACADEMIC_MODEL_CACHE=/home/username/.cache/whisperx
+```
+
+Paths containing spaces must remain unquoted. This repository's env-file
+parser treats quote characters as part of the path.
+
+For the initial model download only:
+
+```bash
+HF_TOKEN=hf_your_read_token ACADEMIC_LOCAL_FILES_ONLY=false uv run python main.py study
+```
+
+Trigger one transcription, wait for all models to finish downloading, exit,
+and then remove the token. Normal operation is offline-only:
+
+```bash
+ACADEMIC_LOCAL_FILES_ONLY=true uv run --frozen python main.py study
+```
+
+### Controls
+
+| Key | Action |
+|---|---|
+| `Space` | Toggle a material for package commit |
+| `Shift+T` | Toggle audio/video for transcription |
+| `T` | Dispatch marked recordings immediately |
+| `M` | Commit selected assets after course/date confirmation |
+| `L` | Record an HTTP(S) URL in the confirmed package without fetching it |
+| `Tab` | Change pane; narrow terminals show one pane at a time |
+| `N` / `C` | Create a course / confirm a date in the calendar |
+| `R` / `U` | Rename speakers / open recoverable-work actions |
+| `O` | Open the selected local path when a desktop session is available |
+| `h` / `Esc` | Help / back |
+
+Each package is `<course>/<YYYY-MM-DD>/`. New files receive the ISO prefix,
+while files found in an existing date folder are indexed without being renamed.
+The visible `class-package.json` is committed last and contains hashes, relative
+filenames, asset types, and derivative relationships. It never contains local
+absolute paths or credentials. URL references are normalized, stripped of URL
+fragments, and stored as link assets; credential-bearing URLs are rejected.
+
+Recordings publish three related assets:
+
+```text
+2026-08-17 - lecture.mp3
+2026-08-17 - lecture.transcript.json
+2026-08-17 - lecture.transcript.md
+```
+
+The JSON transcript is canonical. Markdown is regenerated from it and uses
+timestamped lines such as:
+
+```markdown
+[00:12:08–00:12:21] **SPEAKER_00:** Transcript text.
+```
+
+WhisperX reports phase and queue position, not synthetic percentages. If
+alignment or diarization fails after ASR succeeds, the partial transcript stays
+publishable and `U` can retry from the first failed phase. Cancelling terminates
+the complete worker process group; retained jobs and disk usage live under
+`$XDG_STATE_HOME/meetings-transcript/academic/` by default.
+
+Different-content filename collisions always require `replace`, `keep both`,
+`skip`, or `cancel`. A Nextcloud `conflicted copy` blocks manifest updates until
+the package is reconciled by scanning it again. Source deletion happens only
+after destination hashes and the manifest commit are verified.
 
 ---
 

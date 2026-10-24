@@ -1,0 +1,260 @@
+$deck: #100e0b;
+$plate: #18140f;
+$raised: #211b14;
+$line: #5b4930;
+$amber: #d89a3a;
+$signal: #ffc35a;
+$oxide: #73a69a;
+$paper: #d7cfbb;
+$muted: #928673;
+
+Screen {
+    background: $deck;
+    color: $paper;
+}
+
+Header {
+    background: #2a2116;
+    color: $signal;
+    border-bottom: solid $amber;
+}
+
+#masthead {
+    height: 1;
+    padding: 0 2;
+    background: $amber;
+    color: #15100a;
+    text-style: bold;
+}
+
+#workspace {
+    height: 1fr;
+    padding: 1;
+    background: $deck;
+}
+
+.workspace-pane {
+    width: 1fr;
+    height: 100%;
+    margin-right: 1;
+    border: tall $line;
+    background: $plate;
+}
+
+#packages-pane {
+    margin-right: 0;
+}
+
+.workspace-pane.active-pane {
+    border: tall $signal;
+    background: $raised;
+}
+
+.pane-heading {
+    height: 1;
+    padding: 0 1;
+    background: $line;
+    color: $paper;
+    text-style: bold;
+}
+
+.active-pane .pane-heading {
+    background: $amber;
+    color: #15100a;
+}
+
+.pane-context {
+    height: 2;
+    padding: 0 1;
+    color: $oxide;
+    text-overflow: ellipsis;
+}
+
+.pane-list {
+    height: 1fr;
+    background: transparent;
+}
+
+#course-filter {
+    margin: 0;
+    border: none;
+    border-bottom: solid $line;
+    background: #14110d;
+    color: $paper;
+}
+
+#course-filter:focus {
+    border-bottom: solid $signal;
+}
+
+ListView:focus > ListItem.--highlight {
+    background: #49351d;
+    color: $signal;
+}
+
+ListItem {
+    padding: 0 1;
+}
+
+.package-list {
+    height: 2fr;
+    border-bottom: solid $line;
+}
+
+#package-detail {
+    height: 1fr;
+    padding: 1;
+    color: $muted;
+    overflow-y: auto;
+}
+
+#job-strip {
+    height: 1;
+    padding: 0 2;
+    background: #26302b;
+    color: #a9d7ca;
+    text-style: bold;
+    text-overflow: ellipsis;
+}
+
+#status-strip {
+    height: 1;
+    padding: 0 2;
+    background: #322514;
+    color: $signal;
+    text-overflow: ellipsis;
+}
+
+Footer {
+    background: #17130f;
+    color: $paper;
+}
+
+ModalScreen {
+    align: center middle;
+    background: #080706 75%;
+}
+
+.dialog-shell {
+    width: 88;
+    max-width: 95%;
+    height: auto;
+    max-height: 92%;
+    padding: 1 2;
+    border: thick $amber;
+    background: #1d1812;
+    color: $paper;
+}
+
+.small-dialog {
+    width: 68;
+}
+
+.dialog-title {
+    height: 1;
+    margin-bottom: 1;
+    color: $signal;
+    text-style: bold;
+}
+
+.dialog-detail {
+    margin: 1 0;
+    color: $muted;
+}
+
+.dialog-actions {
+    height: 3;
+    margin-top: 1;
+    align: center middle;
+}
+
+.dialog-actions Button {
+    height: 3;
+    margin: 0 1;
+}
+
+#calendar-dialog {
+    width: 94;
+}
+
+#calendar-navigation {
+    height: 3;
+    align: center middle;
+}
+
+#calendar-navigation Button {
+    width: 15;
+    min-width: 0;
+    margin: 0 1;
+}
+
+#calendar-month {
+    width: 1fr;
+    content-align: center middle;
+    color: $signal;
+    text-style: bold;
+}
+
+#calendar-grid {
+    grid-size: 8 7;
+    grid-columns: 5 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
+    grid-rows: 1 1 1 1 1 1 1;
+    height: 7;
+    margin: 1 0;
+}
+
+.calendar-heading, .calendar-week {
+    height: 1;
+    content-align: center middle;
+    color: $muted;
+}
+
+CalendarDay {
+    min-width: 0;
+    width: 100%;
+    height: 1;
+    padding: 0;
+    border: none;
+    background: #262018;
+    color: $paper;
+}
+
+CalendarDay.outside-month {
+    color: #655b4c;
+    background: #15120e;
+}
+
+CalendarDay.today {
+    color: $oxide;
+    text-style: bold;
+}
+
+CalendarDay.selected-date {
+    background: $amber;
+    color: #15100a;
+    text-style: bold;
+}
+
+#calendar-selection {
+    height: 1;
+    color: $oxide;
+    content-align: center middle;
+}
+
+#help-copy {
+    height: auto;
+    padding: 1 2;
+    border: solid $line;
+    background: #14110d;
+    color: $paper;
+}
+
+#help-return {
+    margin-top: 1;
+    align-horizontal: center;
+}
+
+.speaker-id {
+    height: 1;
+    color: $oxide;
+}
