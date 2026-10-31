@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Mockup — Actas (grabación y transcripción local)</title>
+<style>
+  :root { --rec: #e5484d; --ok: var(--success, #3fb950); }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--font-sans); color: var(--foreground); }
+  .wrap { display: flex; flex-direction: column; gap: 28px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted-foreground); margin: 0 0 10px; font-weight: 600; }
+  h2 b { color: var(--foreground); }
+  .note { font-size: 12px; color: var(--muted-foreground); margin-top: 8px; line-height: 1.45; }
+  .mono { font-family: var(--font-mono); }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .grow { flex: 1; }
+  .btn { font-size: 12px; padding: 6px 10px; border-radius: calc(var(--radius) - 2px); border: 1px solid var(--border); background: var(--secondary); color: var(--secondary-foreground); white-space: nowrap; }
+  .btn.primary { background: var(--rec); border-color: var(--rec); color: #fff; font-weight: 600; }
+  .btn.ghost { background: transparent; }
+  .pill { font-size: 11px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--border); color: var(--muted-foreground); white-space: nowrap; }
+  .pill.local { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 50%, transparent); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rec); display: inline-block; }
+  .pulse { box-shadow: 0 0 0 3px color-mix(in srgb, var(--rec) 30%, transparent); }
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+
+  /* ---------- 1. Barra ---------- */
+  .bar { display: flex; align-items: center; gap: 12px; padding: 6px 12px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); font-size: 12px; }
+  .ws { display: flex; gap: 5px; } .ws i { width: 7px; height: 7px; border-radius: 50%; background: var(--border); } .ws i.on { width: 18px; border-radius: 4px; background: var(--primary); }
+  .tray { display: flex; gap: 8px; color: var(--muted-foreground); }
+  .widget { display: flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--border); }
+  .widget.rec { border-color: var(--rec); color: var(--rec); font-weight: 600; }
+  .widget.sug { border-color: var(--warning); color: var(--warning); }
+  .bars-grid { display: grid; gap: 8px; }
+  .bars-grid .lbl { font-size: 11px; color: var(--muted-foreground); width: 118px; flex-shrink: 0; }
+
+  /* ---------- 2/3. Toast + popover ---------- */
+  .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+  .toast { display: flex; gap: 12px; }
+  .ico { width: 36px; height: 36px; border-radius: 8px; flex-shrink: 0; display: grid; place-items: center; font-weight: 700; font-size: 13px; }
+  .ico.meet { background: #0f9d58; color: #fff; } .ico.teams { background: #5b5fc7; color: #fff; }
+  .toast h3, .pop h3 { margin: 0; font-size: 14px; }
+  .sub { font-size: 12px; color: var(--muted-foreground); }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chk { font-size: 11px; color: var(--muted-foreground); margin-top: 8px; }
+  .meter { height: 6px; border-radius: 3px; background: var(--secondary); overflow: hidden; } .meter > div { height: 100%; background: var(--ok); }
+  .live { margin-top: 10px; font-size: 12px; line-height: 1.5; background: var(--code-background); border-radius: 6px; padding: 8px; max-height: 112px; overflow: hidden; }
+  .live .s { font-weight: 600; } .live .me { color: var(--chart-1); } .live .ot { color: var(--chart-2); }
+  .timer { font-size: 22px; font-weight: 600; }
+  .kv { display: grid; grid-template-columns: 70px 1fr; gap: 4px 8px; font-size: 12px; margin-top: 10px; } .kv span:nth-child(odd) { color: var(--muted-foreground); }
+
+  /* ---------- 4. Ventana principal ---------- */
+  .win { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--card); }
+  .titlebar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .search { flex: 1; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; color: var(--muted-foreground); background: var(--background); }
+  .body { display: grid; grid-template-columns: 200px 1fr; min-height: 520px; }
+  .side { border-right: 1px solid var(--border); padding: 10px 8px; font-size: 12px; }
+  .side .grp { color: var(--muted-foreground); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; margin: 10px 6px 4px; }
+  .item { padding: 7px 8px; border-radius: 6px; margin-bottom: 2px; }
+  .item.sel { background: var(--accent); color: var(--accent-foreground); }
+  .item.sel .m, .item.sel .m span { color: inherit !important; opacity: .85; }
+  .item .t { font-weight: 600; font-size: 12px; } .item .m { font-size: 11px; color: var(--muted-foreground); display: flex; gap: 6px; align-items: center; margin-top: 2px; }
+  .main { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .main h1 { margin: 0; font-size: 17px; }
+  .tabs { display: flex; gap: 14px; font-size: 12px; border-bottom: 1px solid var(--border); }
+  .tabs span { padding: 6px 0; color: var(--muted-foreground); } .tabs span.on { color: var(--foreground); border-bottom: 2px solid var(--primary); }
+  .timeline { position: relative; height: 46px; background: var(--code-background); border-radius: 6px; overflow: hidden; }
+  .lane { position: absolute; left: 0; right: 0; height: 14px; }
+  .lane i { position: absolute; top: 0; height: 100%; border-radius: 3px; opacity: .85; }
+  .playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--foreground); left: 38%; }
+  .mark { position: absolute; top: 0; font-size: 10px; color: var(--warning); }
+  .seg { display: grid; grid-template-columns: 52px 1fr; gap: 8px; font-size: 13px; line-height: 1.5; padding: 6px 0; }
+  .seg .ts { font-size: 11px; color: var(--muted-foreground); padding-top: 2px; }
+  .seg .who { font-weight: 600; font-size: 12px; }
+  .seg.cur { background: color-mix(in srgb, var(--primary) 10%, transparent); border-radius: 6px; padding: 6px; margin: 0 -6px; }
+  .progress { height: 6px; background: var(--secondary); border-radius: 3px; overflow: hidden; } .progress > div { width: 64%; height: 100%; background: var(--info); }
+  .lowconf { text-decoration: underline dotted var(--warning); }
+
+  /* ---------- 5. Ajustes ---------- */
+  .settings { display: grid; grid-template-columns: 150px 1fr; gap: 0; }
+  .settings .nav { font-size: 12px; border-right: 1px solid var(--border); padding-right: 10px; }
+  .settings .nav div { padding: 6px 8px; border-radius: 6px; } .settings .nav .on { background: var(--accent); color: var(--accent-foreground); }
+  .settings .content { padding-left: 16px; display: flex; flex-direction: column; gap: 12px; font-size: 12px; }
+  .field { display: grid; grid-template-columns: 170px 1fr; gap: 10px; align-items: center; }
+  .field .l { color: var(--muted-foreground); }
+  .select { border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; background: var(--background); display: flex; justify-content: space-between; }
+  .toggle { width: 30px; height: 17px; border-radius: 99px; background: var(--primary); position: relative; flex-shrink: 0; }
+  .toggle::after { content: ""; position: absolute; right: 2px; top: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--primary-foreground); }
+  .toggle.off { background: var(--secondary); } .toggle.off::after { left: 2px; right: auto; background: var(--muted-foreground); }
+  .rule { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; }
+  .sect { font-weight: 600; font-size: 12px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- 1. BARRA -->
+  <section>
+    <h2>1 · <b>Widget de barra</b> (Noctalia / SNI tray) — tres estados</h2>
+    <div class="bars-grid">
+      <div class="row"><span class="lbl">Reposo</span>
+        <div class="bar grow"><div class="ws"><i class="on"></i><i></i><i></i></div><span class="grow"></span>
+          <div class="widget">◉ <span class="sub">Actas</span></div>
+          <div class="tray">🔊 📶 🔋</div><span class="mono">10:58</span></div></div>
+      <div class="row"><span class="lbl">Reunión detectada</span>
+        <div class="bar grow"><div class="ws"><i class="on"></i><i></i><i></i></div><span class="grow"></span>
+          <div class="widget sug">◉ Meet detectado · ¿grabar?</div>
+          <div class="tray">🔊 📶 🔋</div><span class="mono">10:59</span></div></div>
+      <div class="row"><span class="lbl">Grabando</span>
+        <div class="bar grow"><div class="ws"><i class="on"></i><i></i><i></i></div><span class="grow"></span>
+          <div class="widget rec"><span class="dot pulse"></span> REC <span class="mono">00:12:41</span></div>
+          <div class="tray">🔊 📶 🔋</div><span class="mono">11:12</span></div></div>
+    </div>
+    <div class="note">Clic izquierdo → popover (3). Clic central → iniciar/parar. Clic derecho → menú SNI clásico (Abrir, Grabar, Pausar, Ajustes, Salir). En Noctalia el widget lee el estado por IPC; en cualquier otra barra cae al icono SNI.</div>
+  </section>
+
+  <!-- 2 + 3 -->
+  <section class="duo">
+    <div>
+      <h2>2 · <b>Sugerencia</b> al detectar reunión</h2>
+      <div class="panel toast">
+        <div class="ico meet">M</div>
+        <div class="grow">
+          <h3>Llamada detectada</h3>
+          <div class="sub">Firefox usa el micrófono · ventana<br>«Meet – Weekly sync plataforma»</div>
+          <div class="btns">
+            <span class="btn primary">● Grabar</span>
+            <span class="btn">Solo audio</span>
+            <span class="btn ghost">Ahora no</span>
+          </div>
+          <div class="chk">☐ Grabar siempre que coincida este título &nbsp; ☐ No sugerir con esta app</div>
+        </div>
+      </div>
+      <div class="panel toast" style="margin-top:10px">
+        <div class="ico teams">T</div>
+        <div class="grow">
+          <h3>Posible llamada</h3>
+          <div class="sub">Chromium usa el micrófono · ventana sin título conocido</div>
+          <div class="btns"><span class="btn primary">● Grabar</span><span class="btn ghost">Ignorar</span></div>
+        </div>
+      </div>
+      <div class="note">Señales: nodo de captura de PipeWire de un navegador + título de ventana (IPC de niri/Hyprland). Notificación vía <span class="mono">org.freedesktop.Notifications</span> con acciones. La grabación nunca arranca sola salvo regla explícita del usuario.</div>
+    </div>
+
+    <div>
+      <h2>3 · <b>Popover</b> durante la grabación</h2>
+      <div class="panel pop">
+        <div class="row"><span class="dot pulse"></span><span class="timer mono">00:12:41</span><span class="grow"></span><span class="pill local">● 100 % local</span></div>
+        <div class="sub" style="margin-top:2px">Weekly sync plataforma · Meet</div>
+        <div class="kv">
+          <span>Pantalla</span><span>Ventana «Meet – Firefox» · NVENC H.264</span>
+          <span>Micrófono</span><span><div class="meter"><div style="width:42%"></div></div></span>
+          <span>Sistema</span><span><div class="meter"><div style="width:71%"></div></div></span>
+          <span>Disco</span><span>412 MB · quedan 211 GB</span>
+        </div>
+        <div class="btns">
+          <span class="btn">⏸ Pausar</span><span class="btn">⚑ Marca</span><span class="btn primary">■ Detener</span>
+        </div>
+        <div class="live">
+          <div class="sub" style="margin-bottom:4px">Transcripción en vivo (borrador · tiny)</div>
+          <div><span class="s ot">Otros:</span> …entonces el despliegue de la API se mueve al jueves.</div>
+          <div><span class="s me">Yo:</span> Vale, pero necesito el entorno de staging antes del miércoles.</div>
+          <div><span class="s ot">Otros:</span> Lo vemos con infra después de esta…</div>
+        </div>
+      </div>
+      <div class="note">Mic y audio del sistema se graban en pistas separadas → «Yo / Otros» gratis sin diarización.</div>
+    </div>
+  </section>
+
+  <!-- 4. VENTANA PRINCIPAL -->
+  <section>
+    <h2>4 · <b>Ventana principal</b> — biblioteca y transcripción</h2>
+    <div class="win">
+      <div class="titlebar">
+        <b>Actas</b><span class="search">⌕ Buscar en todas las transcripciones…</span>
+        <span class="pill local">● sin red</span><span class="btn primary">● Grabar</span>
+      </div>
+      <div class="body">
+        <div class="side">
+          <div class="grp">Hoy</div>
+          <div class="item sel"><div class="t">Weekly sync plataforma</div><div class="m"><span class="ico meet" style="width:14px;height:14px;font-size:8px;border-radius:3px">M</span> 11:00 · 47 min · <span style="color:var(--info)">64 %</span></div></div>
+          <div class="item"><div class="t">1:1 con Laura</div><div class="m"><span class="ico teams" style="width:14px;height:14px;font-size:8px;border-radius:3px">T</span> 09:30 · 28 min · ✓</div></div>
+          <div class="grp">Esta semana</div>
+          <div class="item"><div class="t">Kickoff cliente Norte</div><div class="m">Zoom · 62 min · ✓</div></div>
+          <div class="item"><div class="t">Retro sprint 41</div><div class="m">Meet · 55 min · ✓</div></div>
+          <div class="item"><div class="t">Clase · Sistemas Op.</div><div class="m">Zoom · 1 h 50 · ✓</div></div>
+          <div class="grp">Cola</div>
+          <div class="item"><div class="t">Demo producto</div><div class="m">⏳ en espera</div></div>
+          <div class="grp">Etiquetas</div>
+          <div class="item">#cliente-norte</div><div class="item">#plataforma</div>
+        </div>
+        <div class="main">
+          <div class="row">
+            <h1 class="grow">Weekly sync plataforma</h1>
+            <span class="btn">✦ Resumen → Notion</span><span class="btn">⤓ Exportar ▾</span><span class="btn">📁</span>
+          </div>
+          <div class="row sub" style="gap:8px;flex-wrap:wrap">
+            <span>30 oct 2026 · 11:00–11:47</span><span class="pill">Google Meet</span><span class="pill">es</span><span class="pill">parakeet-tdt-0.6b-v3 · CUDA</span><span class="pill">4 hablantes</span>
+          </div>
+          <div>
+            <div class="row sub" style="margin-bottom:4px"><span class="grow">Transcribiendo… segmento 61/95 · ETA 3 min</span><span>64 %</span></div>
+            <div class="progress"><div></div></div>
+          </div>
+          <div class="timeline">
+            <div class="lane" style="top:6px">
+              <i style="left:2%;width:9%;background:var(--chart-1)"></i><i style="left:24%;width:6%;background:var(--chart-1)"></i><i style="left:47%;width:12%;background:var(--chart-1)"></i><i style="left:80%;width:7%;background:var(--chart-1)"></i>
+            </div>
+            <div class="lane" style="top:26px">
+              <i style="left:11%;width:13%;background:var(--chart-2)"></i><i style="left:30%;width:17%;background:var(--chart-3)"></i><i style="left:59%;width:10%;background:var(--chart-4)"></i><i style="left:69%;width:11%;background:var(--chart-2)"></i><i style="left:87%;width:10%;background:var(--chart-3)"></i>
+            </div>
+            <span class="mark" style="left:52%">⚑</span>
+            <div class="playhead"></div>
+          </div>
+          <div class="row sub" style="gap:10px"><span>▶ 17:52 / 47:03</span><span>1.0×</span><span class="grow"></span><span style="color:var(--chart-1)">■ Yo</span><span style="color:var(--chart-2)">■ Laura</span><span style="color:var(--chart-3)">■ Hablante 2</span><span style="color:var(--chart-4)">■ Hablante 3</span></div>
+          <div class="tabs"><span class="on">Transcripción</span><span>Resumen</span><span>Acciones</span><span>Notas</span><span>Vídeo</span></div>
+          <div>
+            <div class="seg"><span class="ts mono">16:40</span><div><div class="who" style="color:var(--chart-2)">Laura <span class="sub">voz reconocida · 0.91 · ✎</span></div>El despliegue de la API pasa al jueves porque falta la migración de la base de datos.</div></div>
+            <div class="seg cur"><span class="ts mono">17:48</span><div><div class="who" style="color:var(--chart-1)">Yo</div>Vale, pero necesito el entorno de <span class="lowconf">staging</span> antes del miércoles para las pruebas de carga.</div></div>
+            <div class="seg"><span class="ts mono">18:10</span><div><div class="who" style="color:var(--chart-3)">Hablante 2 <span class="sub">desconocida · ＋ guardar voz</span></div>Lo vemos con infra después de esta reunión. ⚑ <span class="sub">Marca: «tarea staging»</span></div></div>
+            <div class="seg"><span class="ts mono">18:31</span><div><div class="who" style="color:var(--chart-4)">Hablante 3</div><span class="sub">…procesando…</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="note">Clic en una frase → salta el audio/vídeo. Palabras subrayadas = baja confianza. Exportar: Markdown, TXT, SRT/VTT, JSON. «Resumen → Notion» ejecuta Codex sobre la transcripción: es la única acción que saca texto del equipo, siempre manual y con confirmación.</div>
+  </section>
+
+  <!-- 5. AJUSTES -->
+  <section>
+    <h2>5 · <b>Ajustes</b></h2>
+    <div class="panel settings">
+      <div class="nav">
+        <div>General</div><div>Captura</div><div>Transcripción</div><div class="on">Detección</div><div>Almacenamiento</div><div>Privacidad</div>
+      </div>
+      <div class="content">
+        <div class="sect">Detección de reuniones</div>
+        <div class="field"><span class="l">Uso de micrófono (PipeWire)</span><span class="row"><span class="toggle"></span><span class="sub">un navegador o Zoom abre captura de audio</span></span></div>
+        <div class="field"><span class="l">Título de ventana (niri/Hyprland)</span><span class="row"><span class="toggle"></span><span class="sub">«Meet –», «Microsoft Teams», «Zoom Meeting» → título de la grabación</span></span></div>
+        <div class="field"><span class="l">Al detectar una llamada</span><span class="select">Sugerir grabación <span>▾</span></span></div>
+        <div class="sect">Captura</div>
+        <div class="field"><span class="l">Pantalla</span><span class="select">Portal ScreenCast · recordar ventana elegida <span>▾</span></span></div>
+        <div class="field"><span class="l">Audio</span><span class="sub">2 pistas: micrófono (Yo) + monitor del sistema (Otros)</span></div>
+        <div class="field"><span class="l">Codificador de vídeo</span><span class="row"><span class="select grow">Automático (NVENC → VAAPI → software) <span>▾</span></span><span class="pill local">usando NVENC</span></span></div>
+        <div class="sect">Transcripción</div>
+        <div class="field"><span class="l">Modelo</span><span class="select">parakeet-tdt-0.6b-v3 (CUDA) <span>▾</span></span></div>
+        <div class="field"><span class="l">Diarización</span><span class="select">Pistas separadas + Sortformer (hasta 8 voces) <span>▾</span></span></div>
+        <div class="sect">Voces guardadas</div>
+        <div class="rule"><span class="dot" style="background:var(--chart-2)"></span><span class="grow">Laura</span><span class="sub">6 reuniones · 3 muestras</span><span class="btn ghost">Escuchar</span><span class="btn ghost">Borrar</span></div>
+        <div class="rule"><span class="dot" style="background:var(--chart-4)"></span><span class="grow">Marcos (infra)</span><span class="sub">2 reuniones · 1 muestra</span><span class="btn ghost">Escuchar</span><span class="btn ghost">Borrar</span></div>
+        <div class="field"><span class="l">Umbral de reconocimiento</span><span class="select">0.75 (por debajo → «desconocida») <span>▾</span></span></div>
+        <div class="sect">Resumen (Codex + Notion)</div>
+        <div class="field"><span class="l">Destino</span><span class="select">Notion · base «Reuniones» <span>▾</span></span></div>
+        <div class="field"><span class="l">Aviso</span><span class="sub" style="color:var(--warning)">La transcripción sale del equipo hacia Codex/OpenAI y Notion. Solo bajo demanda.</span></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

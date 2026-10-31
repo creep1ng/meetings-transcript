@@ -1,0 +1,28 @@
+id = "actas/actas"
+name = "Actas"
+version = "0.1.0"
+plugin_api = 3
+min_noctalia = "5.0.0"
+author = "actas"
+license = "MIT"
+icon = "microphone"
+description = "Estado de grabación de Actas: sugerencias de llamada, temporizador y progreso de transcripción."
+tags = ["recording", "meetings", "transcription"]
+
+[[setting]]
+key = "actas_path"
+type = "string"
+label_key = "settings.actas_path.label"
+description_key = "settings.actas_path.description"
+default = "actas"
+
+[[setting]]
+key = "hide_when_idle"
+type = "bool"
+label_key = "settings.hide_when_idle.label"
+description_key = "settings.hide_when_idle.description"
+default = false
+
+[[widget]]
+id = "status"
+entry = "bar.luau"

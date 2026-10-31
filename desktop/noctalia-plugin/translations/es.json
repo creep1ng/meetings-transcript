@@ -1,0 +1,12 @@
+{
+  "settings": {
+    "actas_path": {
+      "label": "Ruta de actas",
+      "description": "Nombre del comando en PATH o ruta absoluta al ejecutable «actas»."
+    },
+    "hide_when_idle": {
+      "label": "Ocultar en espera",
+      "description": "Muestra el widget solo al grabar, al detectar una llamada o al transcribir."
+    }
+  }
+}

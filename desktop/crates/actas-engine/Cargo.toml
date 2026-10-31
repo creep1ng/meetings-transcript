@@ -1,0 +1,21 @@
+[package]
+name = "actas-engine"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = ["cuda"]
+cuda = ["parakeet-rs/cuda"]
+
+[dependencies]
+actas-core.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+hound = "3.5"
+knf-rs = "0.3"
+# System ONNX Runtime (onnxruntime-cuda), loaded at run time.
+parakeet-rs = { version = "0.4.3", default-features = false, features = ["sortformer", "load-dynamic", "api-28"] }
+
+[dev-dependencies]
+tempfile = "3"
+tracing-subscriber.workspace = true

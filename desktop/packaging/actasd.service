@@ -1,0 +1,14 @@
+[Unit]
+Description=Actas: detección, grabación y transcripción local de reuniones
+PartOf=graphical-session.target
+After=graphical-session.target pipewire.service xdg-desktop-portal.service
+
+[Service]
+ExecStart=%h/.local/bin/actasd
+Restart=on-failure
+RestartSec=3
+# Stop sends SIGTERM: actasd closes the recording (EOS) before exiting.
+TimeoutStopSec=30
+
+[Install]
+WantedBy=graphical-session.target
