@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Actas
+GenericName=Grabación de reuniones
+Comment=Graba y transcribe tus reuniones en local
+Exec=actas
+Icon=media-record
+Terminal=false
+Categories=AudioVideo;Recorder;Office;
+Keywords=reunión;transcripción;grabar;meet;teams;zoom;
+StartupWMClass=actas

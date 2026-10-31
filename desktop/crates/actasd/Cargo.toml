@@ -1,0 +1,24 @@
+[package]
+name = "actasd"
+version.workspace = true
+edition.workspace = true
+description = "Actas daemon: meeting detection, screen/audio capture and local transcription"
+
+[dependencies]
+actas-core.workspace = true
+actas-engine.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+regex.workspace = true
+chrono.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+gstreamer = "0.25"
+# async-io, as gpui uses it: ashpd refuses tokio + async-io in one build.
+ashpd = { version = "0.13", default-features = false, features = ["async-io", "screencast"] }
+ksni = { version = "0.3", default-features = false, features = ["tokio"] }
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+futures-util = "0.3"
+libc = "0.2"

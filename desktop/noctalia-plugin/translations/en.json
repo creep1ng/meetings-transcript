@@ -1,0 +1,12 @@
+{
+  "settings": {
+    "actas_path": {
+      "label": "actas path",
+      "description": "Command name in PATH or absolute path to the «actas» executable."
+    },
+    "hide_when_idle": {
+      "label": "Hide when idle",
+      "description": "Only show the widget while recording, when a call is detected or while transcribing."
+    }
+  }
+}
