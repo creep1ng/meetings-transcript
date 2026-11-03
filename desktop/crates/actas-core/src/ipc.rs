@@ -21,7 +21,7 @@ pub enum Request {
         video: bool,
     },
     Stop,
-    /// Start with video if idle, stop otherwise.
+    /// Start (audio only) if idle, stop otherwise.
     Toggle,
     TogglePause,
     Mark {

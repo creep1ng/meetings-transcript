@@ -380,7 +380,7 @@ impl Daemon {
     }
 
     pub async fn toggle(&self) -> Result<()> {
-        if self.is_recording() { self.stop().await } else { self.start(None, true).await }
+        if self.is_recording() { self.stop().await } else { self.start(None, false).await }
     }
 
     pub fn toggle_pause(&self) -> Result<()> {
@@ -438,7 +438,7 @@ impl Daemon {
                 self.state().config = cfg;
             }
         }
-        self.start(None, true).await
+        self.start(None, false).await
     }
 
     /// One detection step; called every couple of seconds.
@@ -482,7 +482,7 @@ impl Daemon {
                     None => "Llamada detectada".to_string(),
                 };
                 self.state().suggestion = Some(call.clone());
-                let mut actions = vec![("record", "● Grabar"), ("audio", "Solo audio")];
+                let mut actions = vec![("record", "● Grabar")];
                 if call.title.is_some() || call.raw_title.is_some() {
                     actions.push(("always", "Siempre con este título"));
                 }
@@ -497,7 +497,7 @@ impl Daemon {
             Action::AutoRecord(call) => {
                 tracing::info!("grabación automática: {call:?}");
                 self.state().suggestion = Some(call);
-                if self.start(None, true).await.is_ok() {
+                if self.start(None, false).await.is_ok() {
                     let title = self.status().recording.map(|r| r.title).unwrap_or_default();
                     self.notify(
                         Notification {
@@ -540,8 +540,7 @@ impl Daemon {
     pub async fn on_notification_action(&self, id: u32, key: String) {
         let kind = self.state().notifications.remove(&id);
         let result = match (kind, key.as_str()) {
-            (Some(NotifKind::Suggestion), "record") => self.accept_suggestion(true).await,
-            (Some(NotifKind::Suggestion), "audio") => self.accept_suggestion(false).await,
+            (Some(NotifKind::Suggestion), "record") => self.accept_suggestion(false).await,
             (Some(NotifKind::Suggestion), "always") => self.always_record().await,
             (Some(NotifKind::Suggestion), "dismiss") => {
                 self.dismiss_suggestion().await;

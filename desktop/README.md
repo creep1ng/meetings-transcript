@@ -1,6 +1,6 @@
 # Actas
 
-Graba y transcribe tus reuniones (Meet, Teams, Zoom…) **en local**: captura de pantalla y audio en Wayland,
+Graba y transcribe tus reuniones (Meet, Teams, Zoom…) **en local**: captura el audio (micrófono y sistema) por PipeWire —y, si lo pides, la pantalla— en Wayland,
 transcripción con Parakeet TDT 0.6B v3, separación de hablantes con Sortformer y reconocimiento de voces entre
 reuniones. Decisiones de diseño: [`../docs/gui-decisions.md`](../docs/gui-decisions.md). Mockup:
 [`../docs/mockups/gui-mockup.html`](../docs/mockups/gui-mockup.html).
@@ -56,7 +56,7 @@ Línea de órdenes: `actas help`.
 | --- | --- |
 | `~/.config/actas/config.toml` | Configuración (la escribe la ventana de Ajustes). |
 | `~/.local/share/actas/actas.db` | Biblioteca: reuniones, transcripciones, voces. |
-| `~/.local/share/actas/recordings/<id>/` | `recording.mkv` (vídeo + 2 pistas Opus), `mic.wav`, `system.wav`, `transcript.md`. |
+| `~/.local/share/actas/recordings/<id>/` | `recording.mkv` (2 pistas Opus, + vídeo si se grabó con pantalla), `mic.wav`, `system.wav`, `transcript.md`. |
 | `~/.local/share/actas/models/` | Modelos ONNX. |
 | `~/.local/state/actas/screencast-restore-token` | Ventana elegida en el portal (bórralo o usa «Elegir otra ventana»). |
 

@@ -17,7 +17,7 @@ Uso:
   actas                      Abre la ventana principal
   actas popover              Abre/cierra el panel de grabación
   actas status [--json]      Estado del demonio
-  actas start [--audio] [--title T]
+  actas start [--video] [--title T]
   actas stop | toggle | pause
   actas mark [ETIQUETA]
   actas transcribe ID        Vuelve a transcribir una reunión
@@ -37,7 +37,7 @@ pub fn run(args: &[String]) -> Result<()> {
     match arg(0) {
         Some("status") => status(args.iter().any(|a| a == "--json")),
         Some("start") => {
-            let video = !args.iter().any(|a| a == "--audio");
+            let video = args.iter().any(|a| a == "--video");
             let title = args.iter().position(|a| a == "--title").and_then(|i| args.get(i + 1)).cloned();
             send(Request::Start { title, video })
         }

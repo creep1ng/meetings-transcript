@@ -130,12 +130,12 @@ impl ksni::Tray for Tray {
             None => {
                 items.push(item("Grabar", |t| {
                     t.daemon.spawn(|d| async move {
-                        let _ = d.start(None, true).await;
+                        let _ = d.start(None, false).await;
                     })
                 }));
-                items.push(item("Grabar solo audio", |t| {
+                items.push(item("Grabar con pantalla", |t| {
                     t.daemon.spawn(|d| async move {
-                        let _ = d.start(None, false).await;
+                        let _ = d.start(None, true).await;
                     })
                 }));
             }
