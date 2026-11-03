@@ -173,10 +173,10 @@ impl Popover {
                     h_flex()
                         .gap_2()
                         .child(Button::new("rec").danger().label("● Grabar").on_click(
-                            cx.listener(|this, _, _, cx| this.send(Request::AcceptSuggestion { video: true }, cx)),
-                        ))
-                        .child(Button::new("audio").label("Solo audio").on_click(
                             cx.listener(|this, _, _, cx| this.send(Request::AcceptSuggestion { video: false }, cx)),
+                        ))
+                        .child(Button::new("video").label("Con pantalla").on_click(
+                            cx.listener(|this, _, _, cx| this.send(Request::AcceptSuggestion { video: true }, cx)),
                         ))
                         .child(
                             Button::new("dismiss")
@@ -200,10 +200,10 @@ impl Popover {
                     h_flex()
                         .gap_2()
                         .child(Button::new("rec").danger().label("● Grabar").on_click(
-                            cx.listener(|this, _, _, cx| this.send(Request::Start { title: None, video: true }, cx)),
-                        ))
-                        .child(Button::new("audio").label("Solo audio").on_click(
                             cx.listener(|this, _, _, cx| this.send(Request::Start { title: None, video: false }, cx)),
+                        ))
+                        .child(Button::new("video").label("Con pantalla").on_click(
+                            cx.listener(|this, _, _, cx| this.send(Request::Start { title: None, video: true }, cx)),
                         )),
                 );
         }

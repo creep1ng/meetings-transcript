@@ -491,21 +491,21 @@ impl MainWindow {
                         .danger()
                         .small()
                         .label("● Grabar")
-                        .tooltip("Grabar pantalla y audio")
-                        .disabled(self.offline)
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.send(Request::Start { title: None, video: true }, window, cx)
-                        })),
-                )
-                .child(
-                    Button::new("rec-audio")
-                        .ghost()
-                        .small()
-                        .icon(IconName::Mic)
-                        .tooltip("Grabar solo audio")
+                        .tooltip("Grabar el audio de la reunión")
                         .disabled(self.offline)
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.send(Request::Start { title: None, video: false }, window, cx)
+                        })),
+                )
+                .child(
+                    Button::new("rec-video")
+                        .ghost()
+                        .small()
+                        .label("Con pantalla")
+                        .tooltip("Grabar también la pantalla (abre el selector del portal)")
+                        .disabled(self.offline)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.send(Request::Start { title: None, video: true }, window, cx)
                         })),
                 )
                 .into_any_element(),
@@ -1057,7 +1057,7 @@ impl MainWindow {
                     .when_some(m.platform.clone(), |d, pl| d.child(style::pill(p, pl, p.muted)))
                     .when_some(m.model.clone(), |d, md| d.child(style::pill(p, md, p.muted)))
                     .child(style::pill(p, format!("{} hablantes", self.detail.speakers.len()), p.muted))
-                    .when(!m.has_video, |d| d.child(style::pill(p, "solo audio", p.muted))),
+                    .when(m.has_video, |d| d.child(style::pill(p, "con vídeo", p.muted))),
             )
             .children(self.render_status_banner(&m, p, cx))
             .child(self.render_timeline(p))
