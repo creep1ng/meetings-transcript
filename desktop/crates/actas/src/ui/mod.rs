@@ -149,14 +149,34 @@ pub fn open_main(cx: &mut App) {
     }
 }
 
+/// Closes every recording panel, not just the tracked one: a panel whose
+/// handle was lost (e.g. a second surface opened by a race) could otherwise
+/// never be closed, since its Cerrar/Escape would target the other one.
 pub fn close_popover(cx: &mut App) {
-    if let Some(h) = cx.global_mut::<Windows>().popover.take() {
+    close_popover_impl(None, cx);
+}
+
+/// Like [`close_popover`], skipping `own` (closed by its caller).
+pub fn close_popover_except(own: WindowId, cx: &mut App) {
+    close_popover_impl(Some(own), cx);
+}
+
+fn close_popover_impl(skip: Option<WindowId>, cx: &mut App) {
+    let mut handles: Vec<AnyWindowHandle> = cx.global_mut::<Windows>().popover.take().into_iter().collect();
+    for h in cx.windows() {
+        if h.downcast::<popover::Popover>().is_some() && !handles.iter().any(|t| t.window_id() == h.window_id()) {
+            handles.push(h);
+        }
+    }
+    for h in handles.into_iter().filter(|h| Some(h.window_id()) != skip) {
         let _ = h.update(cx, |_, window, _| window.remove_window());
     }
 }
 
 fn toggle_popover(cx: &mut App) {
-    if cx.global::<Windows>().popover.is_some() {
+    let open = cx.global::<Windows>().popover.is_some()
+        || cx.windows().iter().any(|h| h.downcast::<popover::Popover>().is_some());
+    if open {
         close_popover(cx);
         return;
     }

@@ -247,7 +247,7 @@ impl Render for Popover {
         v_flex()
             .key_context("ActasPanel")
             .track_focus(&self.focus)
-            .on_action(|_: &crate::ui::ClosePanel, _, cx| crate::ui::close_popover(cx))
+            .on_action(|_: &crate::ui::ClosePanel, window, cx| close_panel(window, cx))
             .size_full()
             .p_4()
             .gap_3()
@@ -267,12 +267,19 @@ impl Render for Popover {
                             .ghost()
                             .small()
                             .label("Cerrar")
-                            .on_click(|_, _, cx| crate::ui::close_popover(cx)),
+                            .on_click(|_, window, cx| close_panel(window, cx)),
                     )
-                    .child(Button::new("open").ghost().small().label("Abrir Actas").on_click(|_, _, cx| {
-                        crate::ui::close_popover(cx);
+                    .child(Button::new("open").ghost().small().label("Abrir Actas").on_click(|_, window, cx| {
+                        close_panel(window, cx);
                         crate::ui::open_main(cx);
                     })),
             )
     }
+}
+
+/// Closes every panel, including this one even if its handle was lost.
+fn close_panel(window: &mut Window, cx: &mut App) {
+    let own = window.window_handle().window_id();
+    crate::ui::close_popover_except(own, cx);
+    window.remove_window();
 }
